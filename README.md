@@ -162,10 +162,23 @@ Edit OpenClaw’s config (e.g. `~/.openclaw/openclaw.json). Add or merge `plugin
 }
 ```
 
+**CLI mode (no server):** To use the PowerMem CLI instead of the HTTP server (same machine, no `powermem-server`), set `"mode": "cli"` and optionally `envFile` / `pmemPath`:
+
+```json
+"config": {
+  "mode": "cli",
+  "envFile": "/path/to/powermem/.env",
+  "pmemPath": "pmem",
+  "autoCapture": true,
+  "autoRecall": true,
+  "inferOnAdd": true
+}
+```
+
 Notes:
 
-- `baseUrl`: PowerMem HTTP base URL **without** `/api/v1`, e.g. `http://localhost:8000` or your host/port.
-- If PowerMem has API key auth, add `"apiKey": "your-key"` under `config`.
+- **HTTP (default):** `baseUrl` is required; PowerMem HTTP base URL **without** `/api/v1`, e.g. `http://localhost:8000`. If PowerMem has API key auth, add `"apiKey": "your-key"`.
+- **CLI:** Set `mode` to `"cli"`. Optional: `envFile` (path to PowerMem `.env`), `pmemPath` (default `pmem`). Requires `pmem` on PATH and a valid PowerMem config (e.g. `.env`).
 - **Restart the OpenClaw gateway** (or Mac menubar app) after changing config.
 
 ---
@@ -199,8 +212,11 @@ If search returns the line you added (or similar), the full flow (PowerMem → p
 
 | Option        | Required | Description |
 |---------------|----------|-------------|
-| `baseUrl`     | Yes      | PowerMem API base URL, e.g. `http://localhost:8000`, no `/api/v1` suffix. |
-| `apiKey`      | No       | Set when PowerMem server has API key authentication enabled. |
+| `mode`        | No       | Backend: `"http"` (default) or `"cli"`. Use `cli` to run `pmem` locally without a server. |
+| `baseUrl`     | Yes (http) | PowerMem API base URL when `mode` is `http`, e.g. `http://localhost:8000`, no `/api/v1` suffix. |
+| `apiKey`      | No       | Set when PowerMem server has API key authentication enabled (http mode). |
+| `envFile`     | No       | CLI mode: path to PowerMem `.env` file. Optional; pmem discovers if omitted. |
+| `pmemPath`    | No       | CLI mode: path to `pmem` executable; default `pmem`. |
 | `userId`      | No       | PowerMem `user_id` for isolation; default `openclaw-user`. |
 | `agentId`     | No       | PowerMem `agent_id` for isolation; default `openclaw-agent`. |
 | `autoCapture` | No       | Auto-store from conversations after agent ends; default `true`. |

@@ -162,10 +162,23 @@ openclaw plugins install -l /path/to/openclaw-extension-powermem
 }
 ```
 
+**CLI 模式（无需起服务）：** 若希望用 PowerMem CLI 而不是 HTTP 服务（本机、不跑 powermem-server），可设置 `"mode": "cli"`，并可选填 `envFile` / `pmemPath`：
+
+```json
+"config": {
+  "mode": "cli",
+  "envFile": "/path/to/powermem/.env",
+  "pmemPath": "pmem",
+  "autoCapture": true,
+  "autoRecall": true,
+  "inferOnAdd": true
+}
+```
+
 说明：
 
-- `baseUrl`：PowerMem 的 HTTP 地址，**不要**加 `/api/v1`，就写 `http://localhost:8000` 或你的实际主机/端口。
-- 若 PowerMem 开了 API Key 鉴权，在 `config` 里增加 `"apiKey": "你的key"`。
+- **HTTP（默认）：** 需填写 `baseUrl`，PowerMem 的 HTTP 地址，**不要**加 `/api/v1`。若 PowerMem 开了 API Key 鉴权，在 `config` 里增加 `"apiKey": "你的key"`。
+- **CLI：** 将 `mode` 设为 `"cli"`。可选：`envFile`（PowerMem 的 `.env` 路径）、`pmemPath`（默认 `pmem`）。需本机已安装 `pmem` 且配置好 PowerMem（如 `.env`）。
 - 改完配置后**重启 OpenClaw gateway**（或重启 Mac 菜单栏应用），配置才会生效。
 
 ---
@@ -199,8 +212,11 @@ openclaw ltm search "咖啡"
 
 | 选项          | 必填 | 说明 |
 |---------------|------|------|
-| `baseUrl`     | 是   | PowerMem API 根地址，如 `http://localhost:8000`，不要带 `/api/v1`。 |
-| `apiKey`      | 否   | PowerMem 开启 API Key 鉴权时填写。 |
+| `mode`        | 否   | 后端：`"http"`（默认）或 `"cli"`。选 `cli` 时本机直接跑 `pmem`，无需起服务。 |
+| `baseUrl`     | 是（http） | `mode` 为 `http` 时必填，PowerMem API 根地址，如 `http://localhost:8000`，不要带 `/api/v1`。 |
+| `apiKey`      | 否   | PowerMem 开启 API Key 鉴权时填写（http 模式）。 |
+| `envFile`     | 否   | CLI 模式：PowerMem `.env` 文件路径；不填则 pmem 自动发现。 |
+| `pmemPath`    | 否   | CLI 模式：`pmem` 可执行路径，默认 `pmem`。 |
 | `userId`      | 否   | 用于多用户隔离，默认 `openclaw-user`。 |
 | `agentId`     | 否   | 用于多 Agent 隔离，默认 `openclaw-agent`。 |
 | `autoCapture` | 否   | 会话结束后是否自动把对话交给 PowerMem 抽取记忆，默认 `true`。 |

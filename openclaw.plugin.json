@@ -2,16 +2,33 @@
   "id": "memory-powermem",
   "kind": "memory",
   "uiHints": {
+    "mode": {
+      "label": "Backend mode",
+      "placeholder": "http",
+      "help": "Use \"http\" to talk to powermem-server, or \"cli\" to run pmem locally (no server). Default: http"
+    },
     "baseUrl": {
       "label": "PowerMem API URL",
       "placeholder": "http://localhost:8000",
-      "help": "Base URL of PowerMem HTTP API (no /api/v1). Start server with: powermem-server --port 8000"
+      "help": "Required when mode is http. Base URL of PowerMem HTTP API (no /api/v1). Start server with: powermem-server --port 8000"
     },
     "apiKey": {
       "label": "API Key",
       "sensitive": true,
       "placeholder": "",
-      "help": "Optional; required if PowerMem server has authentication enabled"
+      "help": "Optional; required if PowerMem server has authentication enabled (http mode only)"
+    },
+    "envFile": {
+      "label": "Env file path",
+      "placeholder": "",
+      "advanced": true,
+      "help": "CLI mode: path to PowerMem .env file. Optional; pmem discovers .env if omitted"
+    },
+    "pmemPath": {
+      "label": "pmem binary path",
+      "placeholder": "pmem",
+      "advanced": true,
+      "help": "CLI mode: path to pmem (or powermem) executable. Default: pmem"
     },
     "userId": {
       "label": "User ID",
@@ -42,14 +59,17 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
+      "mode": { "type": "string", "enum": ["http", "cli"] },
       "baseUrl": { "type": "string" },
       "apiKey": { "type": "string" },
+      "envFile": { "type": "string" },
+      "pmemPath": { "type": "string" },
       "userId": { "type": "string" },
       "agentId": { "type": "string" },
       "autoCapture": { "type": "boolean" },
       "autoRecall": { "type": "boolean" },
       "inferOnAdd": { "type": "boolean" }
     },
-    "required": ["baseUrl"]
+    "required": []
   }
 }

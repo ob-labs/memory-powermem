@@ -1,9 +1,10 @@
 /**
  * OpenClaw Memory (PowerMem) Plugin
  *
- * Long-term memory via PowerMem HTTP API: intelligent extraction,
- * Ebbinghaus forgetting curve, multi-agent isolation. Requires a running
- * PowerMem server (e.g. powermem-server --port 8000).
+ * Long-term memory via PowerMem: intelligent extraction, Ebbinghaus
+ * forgetting curve, multi-agent isolation. Supports two backends:
+ * - HTTP: requires a running PowerMem server (e.g. powermem-server --port 8000).
+ * - CLI: runs pmem locally (no server); set mode to "cli" and optionally envFile/pmemPath.
  */
 
 import { Type } from "@sinclair/typebox";
@@ -16,6 +17,7 @@ import {
   type PowerMemConfig,
 } from "./config.js";
 import { PowerMemClient } from "./client.js";
+import { PowerMemCLIClient } from "./client-cli.js";
 
 // ============================================================================
 // Plugin Definition
@@ -25,7 +27,7 @@ const memoryPlugin = {
   id: "memory-powermem",
   name: "Memory (PowerMem)",
   description:
-    "PowerMem-backed long-term memory (intelligent extraction, forgetting curve). Requires PowerMem server.",
+    "PowerMem-backed long-term memory (intelligent extraction, forgetting curve). Backend: HTTP server or local CLI (pmem).",
   kind: "memory" as const,
   configSchema: powerMemConfigSchema,
 
@@ -33,10 +35,14 @@ const memoryPlugin = {
     const cfg = powerMemConfigSchema.parse(api.pluginConfig) as PowerMemConfig;
     const userId = resolveUserId(cfg);
     const agentId = resolveAgentId(cfg);
-    const client = PowerMemClient.fromConfig(cfg, userId, agentId);
+    const client =
+      cfg.mode === "cli"
+        ? PowerMemCLIClient.fromConfig(cfg, userId, agentId)
+        : PowerMemClient.fromConfig(cfg, userId, agentId);
+    const modeLabel = cfg.mode === "cli" ? `cli (${cfg.pmemPath ?? "pmem"})` : cfg.baseUrl;
 
     api.logger.info(
-      `memory-powermem: plugin registered (baseUrl: ${cfg.baseUrl}, user: ${userId}, agent: ${agentId})`,
+      `memory-powermem: plugin registered (mode: ${cfg.mode}, ${modeLabel}, user: ${userId}, agent: ${agentId})`,
     );
 
     // ========================================================================
@@ -407,12 +413,17 @@ const memoryPlugin = {
       start: async (_ctx) => {
         try {
           const h = await client.health();
+          const where = cfg.mode === "cli" ? `cli ${cfg.pmemPath ?? "pmem"}` : cfg.baseUrl;
           api.logger.info(
-            `memory-powermem: initialized (${cfg.baseUrl}, health: ${h.status})`,
+            `memory-powermem: initialized (${where}, health: ${h.status})`,
           );
         } catch (err) {
+          const hint =
+            cfg.mode === "cli"
+              ? "is pmem on PATH and POWERMEM_ENV_FILE or --env-file set?"
+              : "is PowerMem server running?";
           api.logger.warn(
-            `memory-powermem: health check failed (is PowerMem server running?): ${String(err)}`,
+            `memory-powermem: health check failed (${hint}): ${String(err)}`,
           );
         }
       },
