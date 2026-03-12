@@ -1,6 +1,6 @@
 ---
-name: powermem-memory
-description: Install guide for PowerMem long-term memory plugin. After setup, the plugin auto-captures important information from conversations and auto-recalls relevant memories before replying.
+name: install-powermem-memory
+description: Step-by-step guide to install and configure the PowerMem long-term memory plugin. After setup, the plugin auto-captures conversation highlights and auto-recalls relevant memories.
 triggers:
   - "安装 PowerMem 记忆"
   - "安装 PowerMem 记忆插件"
@@ -8,9 +8,17 @@ triggers:
   - "Install PowerMem memory plugin"
   - "配置 PowerMem 记忆"
   - "Configure PowerMem memory"
+  - "PowerMem 是什么"
+  - "什么是 PowerMem"
+  - "What is PowerMem"
 ---
 
 # PowerMem Memory Guide
+
+This skill folder includes supplementary docs to reference when needed:
+
+- **powermem-intro.md** — Product intro to PowerMem (what it is, core features, relationship with OpenClaw). Use when the user asks "what is PowerMem" or needs an overview.
+- **config-reference.md** — Configuration options and common commands quick reference.
 
 ## How It Works
 
