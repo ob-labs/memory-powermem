@@ -1,8 +1,16 @@
+<p align="center">
+
+*[PowerMem](https://github.com/oceanbase/powermem) + [OpenClaw](https://github.com/openclaw/openclaw)：为 AI Agent 极致的省 Token。*
+
+<img src="docs/images/openclaw_powermem.jpeg" alt="PowerMem with OpenClaw" width="900"/>
+
+</p>
+
 # OpenClaw Memory (PowerMem) 插件
 
-本插件让 [OpenClaw](https://github.com/openclaw/openclaw) 通过 [PowerMem](https://github.com/oceanbase/powermem) 的 HTTP API 使用长期记忆：智能抽取、艾宾浩斯遗忘曲线、多 Agent 隔离。**OpenClaw 里不跑 Python**，只需一个单独运行的 PowerMem 服务。
+本插件让 [OpenClaw](https://github.com/openclaw/openclaw) 通过 [PowerMem](https://github.com/oceanbase/powermem) 的 HTTP API 使用长期记忆：智能抽取、艾宾浩斯遗忘曲线、多 Agent 隔离。
 
-下面按顺序做即可：先装 PowerMem 并启动服务，再装插件、改配置，最后验证。
+按顺序操作：先安装并启动 PowerMem，再安装插件、配置 OpenClaw，最后验证。
 
 ---
 

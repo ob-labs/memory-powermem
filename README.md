@@ -1,6 +1,14 @@
+<p align="center">
+
+*[PowerMem](https://github.com/oceanbase/powermem) + [OpenClaw](https://github.com/openclaw/openclaw): maximum token savings for AI agents.*
+
+<img src="docs/images/openclaw_powermem.jpeg" alt="PowerMem with OpenClaw" width="900"/>
+
+</p>
+
 # OpenClaw Memory (PowerMem) Plugin
 
-This plugin lets [OpenClaw](https://github.com/openclaw/openclaw) use long-term memory via the [PowerMem](https://github.com/oceanbase/powermem) HTTP API: intelligent extraction, Ebbinghaus forgetting curve, multi-agent isolation. **No Python inside OpenClaw**—only a separately running PowerMem server is required.
+This plugin lets [OpenClaw](https://github.com/openclaw/openclaw) use long-term memory via the [PowerMem](https://github.com/oceanbase/powermem) HTTP API: intelligent extraction, Ebbinghaus forgetting curve, multi-agent isolation. 
 
 Follow the steps in order: install and start PowerMem, then install the plugin, configure OpenClaw, and verify.
 

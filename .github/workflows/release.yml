@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Manual trigger for dev: lint, test, and package only; no GitHub Release or npm publish
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Create release package
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            PKG_VER="${GITHUB_REF#refs/tags/}"
+          else
+            PKG_VER="dev-$(date +%Y%m%d)-${GITHUB_SHA::7}"
+          fi
+          mkdir -p release
+          git archive --format=zip --prefix=openclaw-extension-powermem/ HEAD -o release/openclaw-extension-powermem-$PKG_VER.zip
+
+      # Create GitHub Release only when run on a tag
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Publish to npm only on tag; set NPM_TOKEN in Settings → Secrets and NPM_PUBLISH=true in Variables
+      - name: Publish to npm
+        if: startsWith(github.ref, 'refs/tags/') && vars.NPM_PUBLISH == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > .npmrc
+          npm publish
