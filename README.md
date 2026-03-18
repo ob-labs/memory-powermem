@@ -233,6 +233,24 @@ If search returns the line you added (or similar), the full flow (PowerMem → p
 
 ---
 
+## OpenClaw plugin commands (reference)
+
+Common CLI commands for managing plugins:
+
+| Command | Description |
+|---------|-------------|
+| `openclaw plugins list` | List installed plugins; confirm `memory-powermem` is listed. Use `--json` for machine-readable output. |
+| `openclaw plugins info <id>` | Show details for a plugin (e.g. `openclaw plugins info memory-powermem`). |
+| `openclaw plugins uninstall <id>` | Remove the plugin (e.g. `openclaw plugins uninstall memory-powermem`). Use `--keep-files` to leave files on disk. |
+| `openclaw plugins enable <id>` | Enable a disabled plugin. |
+| `openclaw plugins disable <id>` | Disable a plugin without uninstalling. |
+| `openclaw plugins doctor` | Diagnose plugin load and configuration issues. |
+| `openclaw plugins update <id>` | Update a plugin installed from npm. Use `openclaw plugins update --all` to update all. |
+
+After installing, uninstalling, or changing config, restart the OpenClaw gateway for changes to take effect.
+
+---
+
 ## Config options (optional)
 
 | Option        | Required | Description |

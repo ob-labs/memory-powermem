@@ -234,6 +234,24 @@ openclaw ltm search "咖啡"
 
 ---
 
+## OpenClaw 插件常用命令（参考）
+
+管理插件时常用的 CLI 命令：
+
+| 命令 | 说明 |
+|------|------|
+| `openclaw plugins list` | 列出已安装插件，确认是否包含 `memory-powermem`。加 `--json` 可输出机器可读格式。 |
+| `openclaw plugins info <id>` | 查看某个插件的详情（例如 `openclaw plugins info memory-powermem`）。 |
+| `openclaw plugins uninstall <id>` | 卸载插件（例如 `openclaw plugins uninstall memory-powermem`）。加 `--keep-files` 可保留磁盘上的文件。 |
+| `openclaw plugins enable <id>` | 启用已安装但被禁用的插件。 |
+| `openclaw plugins disable <id>` | 禁用插件（不卸载）。 |
+| `openclaw plugins doctor` | 诊断插件加载与配置问题。 |
+| `openclaw plugins update <id>` | 更新从 npm 安装的插件。使用 `openclaw plugins update --all` 可更新全部。 |
+
+安装、卸载或修改配置后，需重启 OpenClaw gateway 后才会生效。
+
+---
+
 ## 配置项说明（可选）
 
 | 选项          | 必填 | 说明 |
