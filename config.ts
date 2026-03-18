@@ -149,6 +149,18 @@ function toRecallScoreThreshold(v: unknown): number {
 export const DEFAULT_USER_ID = "openclaw-user";
 export const DEFAULT_AGENT_ID = "openclaw-agent";
 
+/**
+ * Default plugin config when openclaw.json has no plugins.entries["memory-powermem"].config.
+ * Allows "openclaw plugins install openclaw-extension-powermem" to work without manual config.
+ */
+export const DEFAULT_PLUGIN_CONFIG: PowerMemConfig = {
+  mode: "http",
+  baseUrl: "http://localhost:8000",
+  autoCapture: true,
+  autoRecall: true,
+  inferOnAdd: true,
+};
+
 export function resolveUserId(cfg: PowerMemConfig): string {
   return cfg.userId ?? DEFAULT_USER_ID;
 }

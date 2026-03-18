@@ -8,7 +8,7 @@
 
 # OpenClaw Memory (PowerMem) 插件
 
-本插件让 [OpenClaw](https://github.com/openclaw/openclaw) 通过 [PowerMem](https://github.com/oceanbase/powermem) 的 HTTP API 使用长期记忆：智能抽取、艾宾浩斯遗忘曲线、多 Agent 隔离。
+本插件让 [OpenClaw](https://github.com/openclaw/openclaw) 通过 [PowerMem](https://github.com/oceanbase/powermem) 使用长期记忆：智能抽取、艾宾浩斯遗忘曲线、多 Agent 隔离。
 
 按顺序操作：先安装并启动 PowerMem，再安装插件、配置 OpenClaw，最后验证。
 
@@ -157,15 +157,15 @@ openclaw plugins install /path/to/openclaw-extension-powermem
 openclaw plugins install -l /path/to/openclaw-extension-powermem
 ```
 
-**说明：** 在某个 Node 项目里执行 `npm i openclaw-extension-powermem` 只会把包装进该项目的 `node_modules`，**不会**在 OpenClaw 里注册插件。若要在 OpenClaw 里使用本插件，必须执行 `openclaw plugins install openclaw-extension-powermem`（或按上面用本地路径安装），再在 OpenClaw 中配置并重启 gateway。
+**说明：** 在某个 Node 项目里执行 `npm i openclaw-extension-powermem` 只会把包装进该项目的 `node_modules`，**不会**在 OpenClaw 里注册插件。若要在 OpenClaw 里使用本插件，必须执行 `openclaw plugins install openclaw-extension-powermem`（或按上面用本地路径安装），再重启 gateway。
 
-安装成功后，可用 `openclaw plugins list` 确认能看到 `memory-powermem`。
+安装成功后，可用 `openclaw plugins list` 确认能看到 `memory-powermem`。未在配置中书写本插件 config 时，插件会使用 **默认配置**：`baseUrl: "http://localhost:8000"`，并开启 `autoCapture`、`autoRecall`、`inferOnAdd`，因此典型情况（PowerMem 跑在 localhost:8000）下无需编辑 `~/.openclaw/openclaw.json`。
 
 ---
 
-## 第三步：配置 OpenClaw 使用本插件
+## 第三步：配置 OpenClaw（可选）
 
-编辑 OpenClaw 的配置文件（常见位置：`~/.openclaw/openclaw.json`），在 **根级** 增加或合并 `plugins` 段，并把记忆槽指向本插件，并写上 PowerMem 的地址。
+若 PowerMem 在 **http://localhost:8000** 且使用默认选项，可跳过本步。若要 **自定义**（如改 URL、API Key 或使用 CLI 模式），请编辑 OpenClaw 配置文件（如 `~/.openclaw/openclaw.json`），增加或合并 `plugins` 段。
 
 **示例（JSON）：**
 

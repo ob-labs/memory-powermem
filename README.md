@@ -156,15 +156,15 @@ openclaw plugins install /path/to/openclaw-extension-powermem
 openclaw plugins install -l /path/to/openclaw-extension-powermem
 ```
 
-**Note:** Running `npm i openclaw-extension-powermem` in a Node project only adds the package to that project’s `node_modules`; it does **not** register the plugin with OpenClaw. To use this as an OpenClaw plugin, you must run `openclaw plugins install openclaw-extension-powermem` (or install from a path as above), then configure OpenClaw and restart the gateway.
+**Note:** Running `npm i openclaw-extension-powermem` in a Node project only adds the package to that project’s `node_modules`; it does **not** register the plugin with OpenClaw. To use this as an OpenClaw plugin, you must run `openclaw plugins install openclaw-extension-powermem` (or install from a path as above), then restart the gateway.
 
-After install, run `openclaw plugins list` and confirm `memory-powermem` is listed.
+After install, run `openclaw plugins list` and confirm `memory-powermem` is listed. The plugin uses **default config** when none is set: `baseUrl: "http://localhost:8000"`, `autoCapture`, `autoRecall`, and `inferOnAdd` enabled — so you do not need to edit `~/.openclaw/openclaw.json` for the typical setup (PowerMem on localhost:8000).
 
 ---
 
-## Step 3: Configure OpenClaw to use the plugin
+## Step 3: Configure OpenClaw (optional)
 
-Edit OpenClaw’s config (e.g. `~/.openclaw/openclaw.json`). At the **root level**, add or merge the `plugins` section: set `plugins.slots.memory` and `plugins.entries["memory-powermem"]`, and set the PowerMem URL.
+If you use PowerMem at **http://localhost:8000** with the default options, skip this step. To **customize** (e.g. different URL, API key, or CLI mode), edit OpenClaw's config (e.g. `~/.openclaw/openclaw.json`) and add or merge the `plugins` section.
 
 **Example (JSON):**
 

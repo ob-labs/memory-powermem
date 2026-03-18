@@ -16,6 +16,7 @@ import type { OpenClawPluginServiceContext } from "openclaw/plugin-sdk";
 
 import {
   powerMemConfigSchema,
+  DEFAULT_PLUGIN_CONFIG,
   resolveUserId,
   resolveAgentId,
   type PowerMemConfig,
@@ -36,7 +37,15 @@ const memoryPlugin = {
   configSchema: powerMemConfigSchema,
 
   register(api: OpenClawPluginApi) {
-    const cfg = powerMemConfigSchema.parse(api.pluginConfig) as PowerMemConfig;
+    const raw = api.pluginConfig;
+    const toParse =
+      raw &&
+      typeof raw === "object" &&
+      !Array.isArray(raw) &&
+      Object.keys(raw).length > 0
+        ? { ...DEFAULT_PLUGIN_CONFIG, ...raw }
+        : DEFAULT_PLUGIN_CONFIG;
+    const cfg = powerMemConfigSchema.parse(toParse) as PowerMemConfig;
     const userId = resolveUserId(cfg);
     const agentId = resolveAgentId(cfg);
     const client =
