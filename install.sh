@@ -32,9 +32,14 @@ PMEM_PATH="pmem"
 _expect_workdir=""
 for arg in "$@"; do
   if [[ -n "$_expect_workdir" ]]; then
-    OPENCLAW_DIR="$arg"
-    PLUGIN_DEST="${OPENCLAW_DIR}/extensions/memory-powermem"
-    _expect_workdir=""
+    if [[ "$arg" == -* ]]; then
+      echo "install.sh: Warning: Missing value for --workdir; ignoring." >&2
+      _expect_workdir=""
+    else
+      OPENCLAW_DIR="$arg"
+      PLUGIN_DEST="${OPENCLAW_DIR}/extensions/memory-powermem"
+      _expect_workdir=""
+    fi
     continue
   fi
   [[ "$arg" == "-y" || "$arg" == "--yes" ]] && INSTALL_YES="1"
@@ -52,6 +57,10 @@ for arg in "$@"; do
     exit 0
   }
 done
+if [[ -n "$_expect_workdir" ]]; then
+  echo "install.sh: ERROR: Option --workdir requires a path." >&2
+  exit 1
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -88,11 +97,12 @@ detect_openclaw_instances() {
     [[ "$(basename "$d")" == .openclaw ]] || [[ "$(basename "$d")" == .openclaw-* ]] || continue
     list+=("$d")
   done
-  echo "${list[@]}"
+  printf '%s\n' "${list[@]}"
 }
 
 select_workdir() {
-  local instances=($(detect_openclaw_instances))
+  local instances=()
+  mapfile -t instances < <(detect_openclaw_instances) || true
   if [[ ${#instances[@]} -le 1 ]]; then
     return 0
   fi
