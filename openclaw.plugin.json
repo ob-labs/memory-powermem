@@ -4,8 +4,8 @@
   "uiHints": {
     "mode": {
       "label": "Backend mode",
-      "placeholder": "http",
-      "help": "Use \"http\" to talk to powermem-server, or \"cli\" to run pmem locally (no server). Default: http"
+      "placeholder": "cli",
+      "help": "Use \"cli\" to run pmem locally (recommended for individuals; no server). Use \"http\" for powermem-server (teams / enterprise). Default: cli"
     },
     "baseUrl": {
       "label": "PowerMem API URL",
@@ -22,7 +22,7 @@
       "label": "Env file path",
       "placeholder": "",
       "advanced": true,
-      "help": "CLI mode: path to PowerMem .env file. Optional; pmem discovers .env if omitted"
+      "help": "CLI mode: path to PowerMem .env (default ~/.openclaw/powermem/powermem.env if you use install.sh -y). Optional; pmem can discover .env if omitted"
     },
     "pmemPath": {
       "label": "pmem binary path",
@@ -65,6 +65,11 @@
     "inferOnAdd": {
       "label": "Infer on Add",
       "help": "Use PowerMem intelligent extraction when adding (infer=true)"
+    },
+    "useOpenClawModel": {
+      "label": "Use OpenClaw LLM for PowerMem",
+      "advanced": true,
+      "help": "When true (default), inject LLM/embedding from OpenClaw agents.defaults.model into pmem (overrides powermem .env for those keys). SQLite defaults under OpenClaw state dir when no .env."
     }
   },
   "configSchema": {
@@ -82,7 +87,8 @@
       "recallScoreThreshold": { "type": "number" },
       "autoCapture": { "type": "boolean" },
       "autoRecall": { "type": "boolean" },
-      "inferOnAdd": { "type": "boolean" }
+      "inferOnAdd": { "type": "boolean" },
+      "useOpenClawModel": { "type": "boolean" }
     },
     "required": []
   }

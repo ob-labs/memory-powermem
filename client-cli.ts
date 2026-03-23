@@ -4,6 +4,7 @@
  * Use when mode is "cli" (no HTTP server required).
  */
 
+import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import type { PowerMemConfig } from "./config.js";
 import type { PowerMemAddResult, PowerMemSearchResult } from "./client.js";
@@ -12,9 +13,15 @@ const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024; // 10 MiB
 
 export type PowerMemCLIClientOptions = {
   pmemPath: string;
-  envFile?: string;
+  /** Path passed to pmem only if the file exists on disk. */
+  resolvedEnvFile?: string;
   userId: string;
   agentId: string;
+  /**
+   * Vars merged into the subprocess environment (after process.env).
+   * OpenClaw + SQLite defaults; cached for the plugin process lifetime.
+   */
+  buildProcessEnv?: () => Promise<Record<string, string>>;
 };
 
 function parseJsonOrThrow<T>(stdout: string, context: string): T {
@@ -79,52 +86,91 @@ function normalizeSearchOutput(raw: unknown): PowerMemSearchResult[] {
 
 export class PowerMemCLIClient {
   private readonly pmemPath: string;
-  private readonly envFile?: string;
+  private readonly resolvedEnvFile?: string;
   private readonly userId: string;
   private readonly agentId: string;
+  private readonly buildProcessEnv?: () => Promise<Record<string, string>>;
+  private injectPromise: Promise<Record<string, string>> | null = null;
 
   constructor(options: PowerMemCLIClientOptions) {
     this.pmemPath = options.pmemPath;
-    this.envFile = options.envFile;
+    this.resolvedEnvFile = options.resolvedEnvFile;
     this.userId = options.userId;
     this.agentId = options.agentId;
+    this.buildProcessEnv = options.buildProcessEnv;
   }
 
-  static fromConfig(cfg: PowerMemConfig, userId: string, agentId: string): PowerMemCLIClient {
+  static fromConfig(
+    cfg: PowerMemConfig,
+    userId: string,
+    agentId: string,
+    extras?: { buildProcessEnv?: () => Promise<Record<string, string>> },
+  ): PowerMemCLIClient {
+    const raw = cfg.envFile?.trim();
+    const resolved = raw && existsSync(raw) ? raw : undefined;
     return new PowerMemCLIClient({
       pmemPath: cfg.pmemPath ?? "pmem",
-      envFile: cfg.envFile,
+      resolvedEnvFile: resolved,
       userId,
       agentId,
+      buildProcessEnv: extras?.buildProcessEnv,
     });
   }
 
-  private run(args: string[], context: string): string {
+  private async getInjectedEnv(): Promise<Record<string, string>> {
+    if (!this.buildProcessEnv) return {};
+    if (!this.injectPromise) {
+      this.injectPromise = this.buildProcessEnv().catch((err) => {
+        this.injectPromise = null;
+        throw err;
+      });
+    }
+    return this.injectPromise;
+  }
+
+  private async run(args: string[], context: string): Promise<string> {
+    const inject = await this.getInjectedEnv();
+    const env: NodeJS.ProcessEnv = { ...process.env, ...inject };
+    if (this.resolvedEnvFile) {
+      env.POWERMEM_ENV_FILE = this.resolvedEnvFile;
+    }
     try {
       const out = execFileSync(this.pmemPath, args, {
         encoding: "utf-8",
         maxBuffer: DEFAULT_MAX_BUFFER,
-        env: this.envFile ? { ...process.env, POWERMEM_ENV_FILE: this.envFile } : process.env,
+        env,
       });
       return out;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const stderr = err && typeof err === "object" && "stderr" in err ? String((err as { stderr: unknown }).stderr) : "";
+      const stderr =
+        err && typeof err === "object" && "stderr" in err
+          ? String((err as { stderr: unknown }).stderr)
+          : "";
       throw new Error(`${context}: ${msg}${stderr ? ` ${stderr}` : ""}`);
     }
   }
 
+  private envFileArgs(): string[] {
+    return this.resolvedEnvFile ? ["--env-file", this.resolvedEnvFile] : [];
+  }
+
   async health(): Promise<{ status: string }> {
     const argsList = [
-      ...(this.envFile ? ["--env-file", this.envFile] : []),
-      "--json", "-j",
-      "memory", "list",
-      "--user-id", this.userId,
-      "--agent-id", this.agentId,
-      "--limit", "1",
+      ...this.envFileArgs(),
+      "--json",
+      "-j",
+      "memory",
+      "list",
+      "--user-id",
+      this.userId,
+      "--agent-id",
+      this.agentId,
+      "--limit",
+      "1",
     ];
     try {
-      this.run(argsList, "health");
+      await this.run(argsList, "health");
       return { status: "healthy" };
     } catch {
       return { status: "unhealthy" };
@@ -136,12 +182,16 @@ export class PowerMemCLIClient {
     options: { infer?: boolean; metadata?: Record<string, unknown> } = {},
   ): Promise<PowerMemAddResult[]> {
     const args = [
-      ...(this.envFile ? ["--env-file", this.envFile] : []),
-      "--json", "-j",
-      "memory", "add",
+      ...this.envFileArgs(),
+      "--json",
+      "-j",
+      "memory",
+      "add",
       content,
-      "--user-id", this.userId,
-      "--agent-id", this.agentId,
+      "--user-id",
+      this.userId,
+      "--agent-id",
+      this.agentId,
     ];
     if (options.infer === false) {
       args.push("--no-infer");
@@ -149,22 +199,27 @@ export class PowerMemCLIClient {
     if (options.metadata && Object.keys(options.metadata).length > 0) {
       args.push("--metadata", JSON.stringify(options.metadata));
     }
-    const stdout = this.run(args, "add");
+    const stdout = await this.run(args, "add");
     const raw = parseJsonOrThrow<unknown>(stdout, "add");
     return normalizeAddOutput(raw);
   }
 
   async search(query: string, limit = 5): Promise<PowerMemSearchResult[]> {
     const args = [
-      ...(this.envFile ? ["--env-file", this.envFile] : []),
-      "--json", "-j",
-      "memory", "search",
+      ...this.envFileArgs(),
+      "--json",
+      "-j",
+      "memory",
+      "search",
       query,
-      "--user-id", this.userId,
-      "--agent-id", this.agentId,
-      "--limit", String(limit),
+      "--user-id",
+      this.userId,
+      "--agent-id",
+      this.agentId,
+      "--limit",
+      String(limit),
     ];
-    const stdout = this.run(args, "search");
+    const stdout = await this.run(args, "search");
     const raw = parseJsonOrThrow<unknown>(stdout, "search");
     return normalizeSearchOutput(raw);
   }
@@ -172,12 +227,16 @@ export class PowerMemCLIClient {
   async delete(memoryId: number | string): Promise<void> {
     const id = String(memoryId);
     const args = [
-      ...(this.envFile ? ["--env-file", this.envFile] : []),
-      "memory", "delete", id,
-      "--user-id", this.userId,
-      "--agent-id", this.agentId,
+      ...this.envFileArgs(),
+      "memory",
+      "delete",
+      id,
+      "--user-id",
+      this.userId,
+      "--agent-id",
+      this.agentId,
       "--yes",
     ];
-    this.run(args, "delete");
+    await this.run(args, "delete");
   }
 }

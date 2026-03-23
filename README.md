@@ -8,23 +8,49 @@
 
 # OpenClaw Memory (PowerMem) Plugin
 
-This plugin lets [OpenClaw](https://github.com/openclaw/openclaw) use long-term memory via the [PowerMem](https://github.com/oceanbase/powermem) HTTP API: intelligent extraction, Ebbinghaus forgetting curve, multi-agent isolation. 
+This plugin lets [OpenClaw](https://github.com/openclaw/openclaw) use long-term memory via [PowerMem](https://github.com/oceanbase/powermem): intelligent extraction, Ebbinghaus forgetting curve, multi-agent isolation.
 
-Follow the steps in order: install and start PowerMem, then install the plugin, configure OpenClaw, and verify.
+**Default:** **CLI mode** — the plugin runs `pmem` locally (no `powermem-server`). Use **HTTP mode** when you already run a shared PowerMem API (teams / enterprise).
+
+Follow the steps in order: install PowerMem, then install the plugin, configure OpenClaw (defaults work for CLI + `~/.openclaw/powermem/powermem.env`), and verify.
 
 ---
 
 ## Prerequisites
 
 - **OpenClaw** installed (CLI + gateway working)
-- **PowerMem server**: install and run it separately (choose one of the two methods below)
-- For PowerMem’s “intelligent extraction”: configure LLM + Embedding API keys in PowerMem’s `.env` (e.g. Qwen / OpenAI)
+- **PowerMem** installed (`pip install powermem`) with `pmem` available — either on PATH when you start the gateway, or via absolute `pmemPath` in plugin config
+- **`.env` for PowerMem** with at least database + LLM + Embedding (see [PowerMem `.env.example`](https://github.com/oceanbase/powermem/blob/master/.env.example)); for individuals, prefer `~/.openclaw/powermem/powermem.env` and SQLite
 
 ---
 
 ## Step 1: Install and start PowerMem
 
-Choose **Option A (pip)** or **Option B (Docker)**.
+Choose **Option C (CLI, recommended for OpenClaw)** or **Option A (HTTP / pip)** or **Option B (Docker)**.
+
+### Option C: CLI + SQLite (recommended for individuals)
+
+No HTTP server. Matches the plugin’s **default** (`mode: cli`).
+
+1. **Install PowerMem** (venv recommended):
+
+   ```bash
+   python3 -m venv ~/.openclaw/powermem/.venv
+   source ~/.openclaw/powermem/.venv/bin/activate
+   pip install powermem
+   ```
+
+2. **Config** — Use [INSTALL.md](INSTALL.md) one-liner `install.sh` to create `~/.openclaw/powermem/powermem.env` (SQLite template), or copy from PowerMem’s `.env.example`. Set `LLM_*` and `EMBEDDING_*`.
+
+3. **Plugin / OpenClaw** — After installing the plugin, either leave the default config (CLI + default `envFile` under `~/.openclaw/powermem/`) or set `envFile` / `pmemPath` explicitly if `pmem` is only inside the venv.
+
+4. **Verify** — With venv activated: `pmem --version`. After gateway start: `openclaw ltm health`.
+
+---
+
+### Option A: HTTP server with pip
+
+Choose this for a **standalone API** or when not using CLI mode.
 
 ### Option A: Install with pip (run server locally)
 
@@ -136,7 +162,8 @@ JSON response means the server is up. API docs: `http://localhost:8000/docs`.
 ## Install options
 
 - **One-click (Linux/macOS):** See [INSTALL.md](INSTALL.md) for `install.sh` (curl or run from repo root).
-- **Let OpenClaw install it:** Copy [skills/install-powermem-memory/SKILL.md](skills/install-powermem-memory/SKILL.md) to `~/.openclaw/skills/install-powermem-memory/`, then tell OpenClaw **「安装 PowerMem 记忆」** or **“Install PowerMem memory”**.
+- **Let OpenClaw install it (simplest):** Copy [skills/powermem-memory-quickstart/SKILL.md](skills/powermem-memory-quickstart/SKILL.md) to `~/.openclaw/skills/powermem-memory-quickstart/`, then say **「PowerMem 快速安装」** or **“PowerMem quickstart”**.  
+- **Full skill (options + troubleshooting):** [skills/install-powermem-memory/SKILL.md](skills/install-powermem-memory/SKILL.md) → **「安装 PowerMem 记忆」** / **“Install PowerMem memory”**.
 - **Manual:** Steps below.
 
 ---
@@ -158,15 +185,15 @@ openclaw plugins install -l /path/to/memory-powermem
 
 **Note:** Running `npm i memory-powermem` in a Node project only adds the package to that project’s `node_modules`; it does **not** register the plugin with OpenClaw. To use this as an OpenClaw plugin, you must run `openclaw plugins install memory-powermem` (or install from a path as above), then restart the gateway.
 
-After install, run `openclaw plugins list` and confirm `memory-powermem` is listed. The plugin uses **default config** when none is set: `baseUrl: "http://localhost:8000"`, `autoCapture`, `autoRecall`, and `inferOnAdd` enabled — so you do not need to edit `~/.openclaw/openclaw.json` for the typical setup (PowerMem on localhost:8000).
+After install, run `openclaw plugins list` and confirm `memory-powermem` is listed. With **no** `plugins.entries["memory-powermem"].config`, the plugin uses **defaults**: `mode: "cli"`, `envFile` under `~/.openclaw/powermem/powermem.env`, `pmemPath: "pmem"`, plus `autoCapture` / `autoRecall` / `inferOnAdd` enabled. Ensure `pmem` is on PATH (or set `pmemPath`) and the env file exists and is valid.
 
 ---
 
 ## Step 3: Configure OpenClaw (optional)
 
-If you use PowerMem at **http://localhost:8000** with the default options, skip this step. To **customize** (e.g. different URL, API key, or CLI mode), edit OpenClaw's config (e.g. `~/.openclaw/openclaw.json`) and add or merge the `plugins` section.
+If you use **CLI mode** with the default paths and `pmem` on PATH, you can skip this step. Customize for HTTP, a different URL/API key, or a non-default `envFile` / `pmemPath`.
 
-**Example (JSON):**
+**CLI (default):**
 
 ```json
 {
@@ -176,7 +203,9 @@ If you use PowerMem at **http://localhost:8000** with the default options, skip 
       "memory-powermem": {
         "enabled": true,
         "config": {
-          "baseUrl": "http://localhost:8000",
+          "mode": "cli",
+          "envFile": "/home/you/.openclaw/powermem/powermem.env",
+          "pmemPath": "pmem",
           "autoCapture": true,
           "autoRecall": true,
           "inferOnAdd": true
@@ -187,13 +216,12 @@ If you use PowerMem at **http://localhost:8000** with the default options, skip 
 }
 ```
 
-**CLI mode (no server):** To use the PowerMem CLI instead of the HTTP server (same machine, no `powermem-server`), set `"mode": "cli"` and optionally `envFile` / `pmemPath`:
+**HTTP (shared server):**
 
 ```json
 "config": {
-  "mode": "cli",
-  "envFile": "/path/to/powermem/.env",
-  "pmemPath": "pmem",
+  "mode": "http",
+  "baseUrl": "http://localhost:8000",
   "autoCapture": true,
   "autoRecall": true,
   "inferOnAdd": true
@@ -202,8 +230,8 @@ If you use PowerMem at **http://localhost:8000** with the default options, skip 
 
 Notes:
 
-- **HTTP (default):** `baseUrl` is required; PowerMem HTTP base URL **without** `/api/v1`, e.g. `http://localhost:8000`. If PowerMem has API key auth, add `"apiKey": "your-key"`.
-- **CLI:** Set `mode` to `"cli"`. Optional: `envFile` (path to PowerMem `.env`), `pmemPath` (default `pmem`). Requires `pmem` on PATH and a valid PowerMem config (e.g. `.env`).
+- **CLI (default):** `mode` optional if omitted and `baseUrl` empty; use `envFile` + `pmemPath`. `pmem` must be runnable with your PowerMem `.env`.
+- **HTTP:** `baseUrl` required when `mode` is `http` (or omit `mode` and set `baseUrl` only — inferred as HTTP). No `/api/v1` suffix. Optional `apiKey` if the server uses auth.
 - **Restart the OpenClaw gateway** (or Mac menubar app) after changing config.
 
 ---
@@ -213,7 +241,7 @@ Notes:
 In a terminal:
 
 ```bash
-# Check PowerMem reachability
+# Check PowerMem (CLI: pmem subprocess; HTTP: server)
 openclaw ltm health
 ```
 
@@ -255,11 +283,11 @@ After installing, uninstalling, or changing config, restart the OpenClaw gateway
 
 | Option        | Required | Description |
 |---------------|----------|-------------|
-| `mode`        | No       | Backend: `"http"` (default) or `"cli"`. Use `cli` to run `pmem` locally without a server. |
+| `mode`        | No       | Backend: `"cli"` (default) or `"http"`. If omitted, non-empty `baseUrl` implies `http`. |
 | `baseUrl`     | Yes (http) | PowerMem API base URL when `mode` is `http`, e.g. `http://localhost:8000`, no `/api/v1` suffix. |
 | `apiKey`      | No       | Set when PowerMem server has API key authentication enabled (http mode). |
-| `envFile`     | No       | CLI mode: path to PowerMem `.env` file. Optional; pmem discovers if omitted. |
-| `pmemPath`    | No       | CLI mode: path to `pmem` executable; default `pmem`. |
+| `envFile`     | No       | CLI: path to PowerMem `.env` (default when using plugin defaults: `~/.openclaw/powermem/powermem.env`). |
+| `pmemPath`    | No       | CLI: path to `pmem` executable; default `pmem`. |
 | `userId`      | No       | User isolation (multi-user); default `openclaw-user`. |
 | `agentId`     | No       | Agent isolation (multi-agent); default `openclaw-agent`. |
 | `autoCapture` | No       | Auto-store from conversations after agent ends; default `true`. |
@@ -292,9 +320,9 @@ Exposed to OpenClaw agents:
 
 **1. `openclaw ltm health` fails or cannot connect**
 
-- Ensure PowerMem is running (Option A terminal still open, or Docker container up).
-- Ensure `baseUrl` matches the real address: use `http://localhost:8000` for local (avoid `127.0.0.1` unless you know it matches).
-- If OpenClaw and PowerMem are on different machines, use PowerMem’s host IP or hostname instead of `localhost`.
+- **CLI:** `pmem` on PATH or correct `pmemPath`; valid `.env` at `envFile`.
+- **HTTP:** PowerMem server running; `baseUrl` matches (e.g. `http://localhost:8000`; avoid mixing `127.0.0.1` vs `localhost` unless intentional).
+- Remote server: use the host IP or hostname instead of `localhost`.
 
 **2. Add/search returns nothing or 500**
 

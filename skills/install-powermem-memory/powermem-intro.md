@@ -6,10 +6,10 @@ Use this doc when the user asks "what is PowerMem", "why use PowerMem", or needs
 
 ## What is PowerMem?
 
-**PowerMem** ([GitHub: oceanbase/powermem](https://github.com/oceanbase/powermem)) is a **long-term memory service** that gives AI applications persistent, retrievable memory. It can run as an **HTTP server** (for clients like OpenClaw) or be used via the **CLI** (`pmem`) on the local machine.
+**PowerMem** ([GitHub: oceanbase/powermem](https://github.com/oceanbase/powermem)) is a **long-term memory engine** that gives AI applications persistent, retrievable memory. With the **memory-powermem** plugin it is usually used via the **CLI** (`pmem`) on the same machine as OpenClaw; you can instead run an **HTTP server** (`powermem-server`) for shared or team setups.
 
-- **OpenClaw does not bundle Python**: This plugin talks to PowerMem over HTTP API or by invoking `pmem`; the user must install and run PowerMem separately.
-- **Data stays on the user's side**: Memories are stored in the user's own database (seekdb, oceanbase, etc.), as configured in PowerMem's `.env`.
+- **OpenClaw does not bundle Python**: The plugin runs `pmem` as a subprocess (CLI) or talks to a HTTP API (server mode). Install PowerMem with `pip` (or use Docker for server mode).
+- **Data stays on the user’s machine** (typical setup): **SQLite** under the OpenClaw **state directory** (`<stateDir>/powermem/data/powermem.db`) when using plugin defaults—**no `powermem.env` file is required** for that layout. Larger deployments can still use OceanBase, PostgreSQL, etc., configured in PowerMem’s own `.env` or server config.
 
 ---
 
@@ -17,42 +17,44 @@ Use this doc when the user asks "what is PowerMem", "why use PowerMem", or needs
 
 | Feature | Description |
 |---------|-------------|
-| **Intelligent extraction (Infer)** | When writing memories, can use an LLM to summarize, dedupe, and structure content so only the essential information is stored. Requires LLM + Embedding configured in PowerMem. |
-| **Ebbinghaus forgetting curve** | Supports adjusting memory weight or review policy by forgetting curve so important information lasts longer. |
-| **Multi-agent / multi-user isolation** | Uses `userId`, `agentId`, etc. to separate memories per user or agent so they do not interfere. |
-| **Vector search** | Semantic search over memories (embedding-based) to recall what is most relevant to the current conversation. |
+| **Intelligent extraction (Infer)** | On write, an LLM can summarize, dedupe, and structure content. Needs LLM + embedding configured—either injected from **OpenClaw** (default) or from a PowerMem `.env`. |
+| **Ebbinghaus forgetting curve** | Adjusts retention / importance so less relevant memories fade over time. |
+| **Multi-agent / multi-user isolation** | `userId`, `agentId`, etc. separate namespaces in the store. |
+| **Vector search** | Embedding-based semantic search for recall. |
 
 ---
 
 ## Relationship with OpenClaw
 
-- **OpenClaw**: Provides gateway, sessions, tool dispatch, etc.; its **memory slot** must be implemented by a plugin.
-- **memory-powermem**: Implements the memory slot and forwards store/recall/forget requests to PowerMem (HTTP or CLI).
-- **PowerMem**: Handles storage, retrieval, intelligent extraction, and forgetting curve; it is where data actually lives.
+- **OpenClaw**: Gateway, sessions, tools; the **memory slot** is filled by a plugin.
+- **memory-powermem**: Implements that slot and forwards add/search/forget to PowerMem (CLI or HTTP).
+- **PowerMem**: Stores data, runs extraction, search, and forgetting logic.
 
-So: the user must **install and run PowerMem first** (or install the `pmem` CLI), then install this plugin and configure the connection (HTTP `baseUrl` or CLI `pmemPath`).
+**Typical personal setup:** `pip install powermem`, ensure **`agents.defaults.model`** and provider keys are set in OpenClaw, install the plugin, use **CLI mode** with defaults (`useOpenClawModel: true`, no `envFile`). The plugin supplies SQLite paths and LLM/embedding env to each `pmem` call.
+
+**Optional:** Point **`envFile`** at a PowerMem `.env` for advanced DB/provider tuning; OpenClaw can still override LLM-related keys when `useOpenClawModel` is true.
+
+**HTTP mode:** Run `powermem-server`, set plugin `mode: http` and `baseUrl`.
 
 ---
 
 ## Advantages over OpenClaw file-based memory
 
-OpenClaw can work with **file-as-memory**: storing context in workspace files like `memory/YYYY-MM-DD-slug.md`, `MEMORY.md`, or `memory.md`, and using built-in search over those files. The **session-memory** hook writes a snapshot to a file on `/new` or `/reset`. PowerMem (via this plugin) offers a different model with these advantages:
+OpenClaw can use **files as memory** (e.g. `memory/YYYY-MM-DD.md`, `MEMORY.md`). The **session-memory** hook snapshots to disk on `/new` or `/reset`. PowerMem + this plugin differ as follows:
 
-| Aspect | File-based (OpenClaw default) | PowerMem + plugin |
-|--------|--------------------------------|--------------------|
-| **Recall** | Load fixed files (e.g. today + yesterday) or search workspace; relevance is by recency or keyword/embedding over raw text. | **Semantic recall**: only the top‑k most relevant memories are injected per turn, with score threshold and limit. Fewer tokens, more focused context. |
-| **Storage** | Append or overwrite Markdown; no automatic deduplication or structure. | **Structured store** in a DB (seekdb/oceanbase) with **intelligent extraction**: LLM can summarize, dedupe, and normalize when adding, so you keep essential facts instead of raw dumps. |
-| **Decay / importance** | Files accumulate unless you manually consolidate or prune. | **Ebbinghaus forgetting curve**: importance and retention can be tuned so older or less relevant memories fade appropriately. |
-| **Isolation** | Usually one workspace = one user; multi-agent or multi-user requires separate workspaces or conventions. | **userId / agentId**: same PowerMem backend can serve multiple users or agents with isolated namespaces. |
-| **Auto-capture / auto-recall** | Session-memory saves on `/new` or `/reset`; the agent must explicitly read and write memory files otherwise. | **Auto-capture** at end of conversation and **auto-recall** before each turn, so memory is updated and injected without extra user or agent steps. |
-
-Use this section when the user asks why to use PowerMem instead of (or in addition to) OpenClaw’s file-based memory.
+| Aspect | File-based (typical) | PowerMem + plugin |
+|--------|----------------------|-------------------|
+| **Recall** | Fixed files or workspace search; relevance often by recency or simple search. | **Semantic recall**: top‑k memories per turn with score threshold and limits; fewer tokens. |
+| **Storage** | Append/overwrite Markdown; manual cleanup. | **DB-backed** store (default **SQLite** locally) with optional **intelligent extraction**. |
+| **Decay / importance** | Manual consolidation. | **Ebbinghaus-style** tuning where supported. |
+| **Isolation** | Often one workspace per context. | **`userId` / `agentId`** namespaces on one backend. |
+| **Auto flow** | Agent must read/write files unless hooks cover it. | **Auto-capture** after conversations and **auto-recall** before turns (plugin hooks). |
 
 ---
 
-## Two Usage Modes
+## Two usage modes
 
-- **HTTP mode**: Run `powermem-server` on the host or a server; the OpenClaw plugin calls its API via `baseUrl`. Suited for multi-client, multi-user, or centralized deployment.
-- **CLI mode**: No server; the plugin invokes the user's local `pmem` command. Suited for single-machine, lightweight use.
+- **CLI mode (default)**: Plugin runs `pmem`; SQLite + LLM often come from **OpenClaw config** (no mandatory `.env`).
+- **HTTP mode**: Central `powermem-server`; plugin uses `baseUrl` (and optional `apiKey`).
 
-For full install and configuration steps, see **SKILL.md** in this folder.
+Full steps: **SKILL.md** in this folder.

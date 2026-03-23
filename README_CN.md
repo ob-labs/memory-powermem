@@ -10,25 +10,47 @@
 
 本插件让 [OpenClaw](https://github.com/openclaw/openclaw) 通过 [PowerMem](https://github.com/oceanbase/powermem) 使用长期记忆：智能抽取、艾宾浩斯遗忘曲线、多 Agent 隔离。
 
-按顺序操作：先安装并启动 PowerMem，再安装插件、配置 OpenClaw，最后验证。
+**默认：CLI 模式** — 插件在本机执行 `pmem`，无需 `powermem-server`。**HTTP 模式** 适合已有共享 PowerMem API 的场景（团队 / 企业）。
+
+按顺序操作：先安装 PowerMem，再安装插件、配置 OpenClaw（CLI + `~/.openclaw/powermem/powermem.env` 可零额外配置），最后验证。
 
 ---
 
 ## 前置条件
 
 - 已安装 **OpenClaw**（CLI + gateway 能正常用）
-- **PowerMem 服务**：需要单独安装并启动（见下文两种方式，任选其一）
-- 若用 PowerMem 的「智能抽取」：需在 PowerMem 的 `.env` 里配置好 LLM + Embedding 的 API Key（如通义千问 / OpenAI）
+- 已 `pip install powermem`，启动 gateway 时 `pmem` 在 PATH 上，或在插件里配置绝对路径 `pmemPath`
+- PowerMem 的 **`.env`**（至少数据库 + LLM + Embedding），个人用户建议放在 `~/.openclaw/powermem/powermem.env`，数据库可用 SQLite
 
 ---
 
 ## 第一步：安装并启动 PowerMem
 
-任选 **方式 A（pip）** 或 **方式 B（Docker）**，二选一即可。
+可选 **方式 C（CLI，推荐给 OpenClaw 个人用户）**、**方式 A（HTTP + pip）** 或 **方式 B（Docker）**。
 
-### 方式 A：用 pip 安装（本机跑服务）
+### 方式 C：CLI + SQLite（推荐给个人）
 
-适合本机已有 Python 3.11+ 的情况。
+不跑 HTTP 服务，与插件**默认**配置一致（`mode: cli`）。
+
+1. 安装（建议 venv）：
+
+   ```bash
+   python3 -m venv ~/.openclaw/powermem/.venv
+   source ~/.openclaw/powermem/.venv/bin/activate
+   pip install powermem
+   ```
+
+2. 配置：用 [INSTALL.md](INSTALL.md) 里的一键 `install.sh` 生成 `~/.openclaw/powermem/powermem.env`（SQLite 模板），或复制 PowerMem 官方 `.env.example`，填写 `LLM_*`、`EMBEDDING_*`。
+
+3. 若 `pmem` 只在 venv 里，在插件 `config` 里把 `pmemPath` 设为该 venv 下 `pmem` 的绝对路径。
+
+4. 验证：激活 venv 后 `pmem --version`；启动 gateway 后 `openclaw ltm health`。
+
+---
+
+### 方式 A：用 pip 安装（本机跑 HTTP 服务）
+
+适合要**单独起 API 服务**、或不使用 CLI 模式的场景。适合本机已有 Python 3.11+ 的情况。
 
 **1. 安装 PowerMem**
 
@@ -137,7 +159,8 @@ curl -s http://localhost:8000/api/v1/system/health
 ## 安装方式
 
 - **一键安装（Linux/macOS）：** 见 [INSTALL.md](INSTALL.md)，使用 `install.sh`（curl 或从仓库根目录执行）。
-- **交给 OpenClaw 安装：** 将 [skills/install-powermem-memory/SKILL.md](skills/install-powermem-memory/SKILL.md) 复制到 `~/.openclaw/skills/install-powermem-memory/`，然后对 OpenClaw 说「**安装 PowerMem 记忆**」。
+- **交给 OpenClaw 安装（最省事）：** 将 [skills/powermem-memory-quickstart/SKILL.md](skills/powermem-memory-quickstart/SKILL.md) 复制到 `~/.openclaw/skills/powermem-memory-quickstart/`，然后说「**PowerMem 快速安装**」。  
+- **完整说明（排错与进阶）：** [skills/install-powermem-memory/SKILL.md](skills/install-powermem-memory/SKILL.md) →「**安装 PowerMem 记忆**」。
 - **手动安装：** 按下面步骤操作。
 
 ---
@@ -159,15 +182,15 @@ openclaw plugins install -l /path/to/memory-powermem
 
 **说明：** 在某个 Node 项目里执行 `npm i memory-powermem` 只会把包装进该项目的 `node_modules`，**不会**在 OpenClaw 里注册插件。若要在 OpenClaw 里使用本插件，必须执行 `openclaw plugins install memory-powermem`（或按上面用本地路径安装），再重启 gateway。
 
-安装成功后，可用 `openclaw plugins list` 确认能看到 `memory-powermem`。未在配置中书写本插件 config 时，插件会使用 **默认配置**：`baseUrl: "http://localhost:8000"`，并开启 `autoCapture`、`autoRecall`、`inferOnAdd`，因此典型情况（PowerMem 跑在 localhost:8000）下无需编辑 `~/.openclaw/openclaw.json`。
+安装成功后，可用 `openclaw plugins list` 确认能看到 `memory-powermem`。若未写 `plugins.entries["memory-powermem"].config`，插件 **默认**：`mode: "cli"`、`envFile` 为 `~/.openclaw/powermem/powermem.env`、`pmemPath: "pmem"`，并开启 `autoCapture`、`autoRecall`、`inferOnAdd`。请确保 `pmem` 在 PATH 上（或配置 `pmemPath`），且上述 `.env` 有效。
 
 ---
 
 ## 第三步：配置 OpenClaw（可选）
 
-若 PowerMem 在 **http://localhost:8000** 且使用默认选项，可跳过本步。若要 **自定义**（如改 URL、API Key 或使用 CLI 模式），请编辑 OpenClaw 配置文件（如 `~/.openclaw/openclaw.json`），增加或合并 `plugins` 段。
+若使用 **CLI 默认路径** 且 `pmem` 已在 PATH，可跳过。需要 HTTP、改 URL/API Key、或自定义 `envFile` / `pmemPath` 时再改配置。
 
-**示例（JSON）：**
+**CLI（默认）：**
 
 ```json
 {
@@ -177,7 +200,9 @@ openclaw plugins install -l /path/to/memory-powermem
       "memory-powermem": {
         "enabled": true,
         "config": {
-          "baseUrl": "http://localhost:8000",
+          "mode": "cli",
+          "envFile": "/home/you/.openclaw/powermem/powermem.env",
+          "pmemPath": "pmem",
           "autoCapture": true,
           "autoRecall": true,
           "inferOnAdd": true
@@ -188,13 +213,12 @@ openclaw plugins install -l /path/to/memory-powermem
 }
 ```
 
-**CLI 模式（无需起服务）：** 若希望用 PowerMem CLI 而不是 HTTP 服务（本机、不跑 powermem-server），可设置 `"mode": "cli"`，并可选填 `envFile` / `pmemPath`：
+**HTTP（共享服务）：**
 
 ```json
 "config": {
-  "mode": "cli",
-  "envFile": "/path/to/powermem/.env",
-  "pmemPath": "pmem",
+  "mode": "http",
+  "baseUrl": "http://localhost:8000",
   "autoCapture": true,
   "autoRecall": true,
   "inferOnAdd": true
@@ -203,9 +227,9 @@ openclaw plugins install -l /path/to/memory-powermem
 
 说明：
 
-- **HTTP（默认）：** 需填写 `baseUrl`，PowerMem 的 HTTP 地址，**不要**加 `/api/v1`。若 PowerMem 开了 API Key 鉴权，在 `config` 里增加 `"apiKey": "你的key"`。
-- **CLI：** 将 `mode` 设为 `"cli"`。可选：`envFile`（PowerMem 的 `.env` 路径）、`pmemPath`（默认 `pmem`）。需本机已安装 `pmem` 且配置好 PowerMem（如 `.env`）。
-- 改完配置后**重启 OpenClaw gateway**（或重启 Mac 菜单栏应用），配置才会生效。
+- **CLI（默认）：** 可不写 `mode` 且 `baseUrl` 为空时走 CLI；使用 `envFile` + `pmemPath`。
+- **HTTP：** `mode` 为 `http` 时必须配置 `baseUrl`；若只写 `baseUrl` 不写 `mode`，插件会按 HTTP 处理。**不要**在 `baseUrl` 上加 `/api/v1`。若服务开了 API Key，加 `"apiKey"`。
+- 改完配置后**重启 OpenClaw gateway**（或 Mac 菜单栏应用）。
 
 ---
 
@@ -256,10 +280,10 @@ openclaw ltm search "咖啡"
 
 | 选项          | 必填 | 说明 |
 |---------------|------|------|
-| `mode`        | 否   | 后端：`"http"`（默认）或 `"cli"`。选 `cli` 时本机直接跑 `pmem`，无需起服务。 |
+| `mode`        | 否   | 后端：`"cli"`（默认）或 `"http"`。不写 `mode` 但填了 `baseUrl` 时按 HTTP 处理。 |
 | `baseUrl`     | 是（http） | `mode` 为 `http` 时必填，PowerMem API 根地址，如 `http://localhost:8000`，不要带 `/api/v1`。 |
 | `apiKey`      | 否   | PowerMem 开启 API Key 鉴权时填写（http 模式）。 |
-| `envFile`     | 否   | CLI 模式：PowerMem `.env` 文件路径；不填则 pmem 自动发现。 |
+| `envFile`     | 否   | CLI：PowerMem `.env`；插件默认约定 `~/.openclaw/powermem/powermem.env`。 |
 | `pmemPath`    | 否   | CLI 模式：`pmem` 可执行路径，默认 `pmem`。 |
 | `userId`      | 否   | 用于多用户隔离，默认 `openclaw-user`。 |
 | `agentId`     | 否   | 用于多 Agent 隔离，默认 `openclaw-agent`。 |
@@ -293,8 +317,8 @@ openclaw ltm search "咖啡"
 
 **1. `openclaw ltm health` 报错连不上**
 
-- 确认 PowerMem 已启动（方式 A 的终端还在跑，或 Docker 容器在运行）。
-- 确认 `baseUrl` 与真实地址一致（本机用 `http://localhost:8000`，别写 `127.0.0.1` 除非你确定一致）。
+- **CLI：** `pmem` 在 PATH 或 `pmemPath` 正确；`envFile` 指向有效 `.env`。
+- **HTTP：** PowerMem 已启动（方式 A 终端或 Docker）；`baseUrl` 正确（本机常用 `http://localhost:8000`，注意与 `127.0.0.1` 一致性问题）。
 - 若 OpenClaw 和 PowerMem 不在同一台机器，把 `localhost` 改成 PowerMem 所在机器的 IP 或域名。
 
 **2. 写入/搜索没反应或报 500**
