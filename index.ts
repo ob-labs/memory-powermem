@@ -3,8 +3,8 @@
  *
  * Long-term memory via PowerMem: intelligent extraction, Ebbinghaus
  * forgetting curve, multi-agent isolation. Supports two backends:
- * - HTTP: requires a running PowerMem server (e.g. powermem-server --port 8000).
- * - CLI: runs pmem locally (no server); set mode to "cli" and optionally envFile/pmemPath.
+ * - CLI (default): runs pmem locally; SQLite + LLM from OpenClaw state / agents.defaults.model (optional .env).
+ * - HTTP: powermem-server (e.g. --port 8000) for shared / enterprise setups.
  */
 
 import { Type } from "@sinclair/typebox";
@@ -21,8 +21,40 @@ import {
   resolveAgentId,
   type PowerMemConfig,
 } from "./config.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import { PowerMemClient } from "./client.js";
 import { PowerMemCLIClient } from "./client-cli.js";
+import {
+  buildDefaultSqlitePowermemEnv,
+  buildPowermemCliProcessEnv,
+} from "./openclaw-powermem-env.js";
+
+type GatewayApi = OpenClawPluginApi & {
+  config?: unknown;
+  runtime?: {
+    state?: { resolveStateDir?: (env?: NodeJS.ProcessEnv) => string };
+    modelAuth?: {
+      resolveApiKeyForProvider?: (params: {
+        provider: string;
+        cfg?: unknown;
+      }) => Promise<{ apiKey?: string }>;
+    };
+  };
+};
+
+function resolveOpenClawStateDir(api: GatewayApi): string {
+  const fn = api.runtime?.state?.resolveStateDir;
+  if (typeof fn === "function") {
+    try {
+      return fn(process.env);
+    } catch {
+      /* ignore */
+    }
+  }
+  return join(homedir(), ".openclaw");
+}
 
 // ============================================================================
 // Plugin Definition
@@ -32,11 +64,12 @@ const memoryPlugin = {
   id: "memory-powermem",
   name: "Memory (PowerMem)",
   description:
-    "PowerMem-backed long-term memory (intelligent extraction, forgetting curve). Backend: HTTP server or local CLI (pmem).",
+    "PowerMem-backed long-term memory (intelligent extraction, forgetting curve). Default: local CLI (pmem); optional HTTP server for shared deployments.",
   kind: "memory" as const,
   configSchema: powerMemConfigSchema,
 
   register(api: OpenClawPluginApi) {
+    const gw = api as GatewayApi;
     const raw = api.pluginConfig;
     const toParse =
       raw &&
@@ -48,9 +81,30 @@ const memoryPlugin = {
     const cfg = powerMemConfigSchema.parse(toParse) as PowerMemConfig;
     const userId = resolveUserId(cfg);
     const agentId = resolveAgentId(cfg);
+    const stateDir = resolveOpenClawStateDir(gw);
+    const buildProcessEnv =
+      cfg.mode === "cli"
+        ? cfg.useOpenClawModel !== false
+          ? () =>
+              buildPowermemCliProcessEnv({
+                openclawConfig: gw.config,
+                stateDir,
+                resolveProviderAuth: async (provider) => {
+                  const fn = gw.runtime?.modelAuth?.resolveApiKeyForProvider;
+                  if (typeof fn !== "function") return {};
+                  try {
+                    return await fn({ provider, cfg: gw.config });
+                  } catch {
+                    return {};
+                  }
+                },
+                warn: (m) => api.logger.warn(m),
+              })
+          : () => Promise.resolve(buildDefaultSqlitePowermemEnv(stateDir))
+        : undefined;
     const client =
       cfg.mode === "cli"
-        ? PowerMemCLIClient.fromConfig(cfg, userId, agentId)
+        ? PowerMemCLIClient.fromConfig(cfg, userId, agentId, { buildProcessEnv })
         : PowerMemClient.fromConfig(cfg, userId, agentId);
     const modeLabel = cfg.mode === "cli" ? `cli (${cfg.pmemPath ?? "pmem"})` : cfg.baseUrl;
 
@@ -508,7 +562,7 @@ const memoryPlugin = {
         } catch (err) {
           const hint =
             cfg.mode === "cli"
-              ? "is pmem on PATH and POWERMEM_ENV_FILE or --env-file set?"
+              ? "is pmem on PATH? Check agents.defaults.model + provider keys in OpenClaw, or set envFile to a powermem .env"
               : "is PowerMem server running?";
           api.logger.warn(
             `memory-powermem: health check failed (${hint}): ${String(err)}`,

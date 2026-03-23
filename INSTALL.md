@@ -6,7 +6,9 @@ Give [OpenClaw](https://github.com/openclaw/openclaw) long-term memory via [Powe
 
 ## One-Click Install (Linux / macOS)
 
-**Prerequisites:** OpenClaw installed (`openclaw --version`). PowerMem is **not** installed by this script—you either run a PowerMem server yourself (HTTP mode) or use the `pmem` CLI (CLI mode). The script only deploys the plugin and configures OpenClaw.
+**Prerequisites:** OpenClaw installed (`openclaw --version`).
+
+**Default path:** The script configures **CLI mode** (no `powermem-server`). With current plugin defaults you **do not need** `powermem.env`: the plugin injects **SQLite** under your OpenClaw state directory and **LLM/embedding** from OpenClaw `agents.defaults.model` + provider keys (same as the gateway). The script may still create `~/.openclaw/powermem/powermem.env` as an optional override template. You still need `pip install powermem` and `pmem` on PATH (or `pmemPath`).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ob-labs/memory-powermem/main/install.sh | bash
@@ -19,7 +21,7 @@ cd /path/to/memory-powermem
 bash install.sh
 ```
 
-Non-interactive (defaults: HTTP mode, baseUrl http://localhost:8000):
+Non-interactive (defaults: **CLI** mode, env file `~/.openclaw/powermem/powermem.env`, SQLite template if new):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ob-labs/memory-powermem/main/install.sh | bash -s -y
@@ -31,15 +33,33 @@ Install to a specific OpenClaw instance:
 curl -fsSL ... | bash -s -- --workdir ~/.openclaw-second
 ```
 
-The script will: 1) check OpenClaw, 2) ask mode (http / cli) and connection details, 3) deploy the plugin into `~/.openclaw/extensions/memory-powermem`, 4) run `npm install` there, 5) set OpenClaw config (plugins.enabled, slots.memory, entries.memory-powermem).
+The script will: 1) resolve OpenClaw workdir, 2) ask mode (**cli** / http) and paths, 3) for CLI, seed `powermem.env` if absent, 4) deploy the plugin into `<workdir>/extensions/memory-powermem`, 5) run `npm install` there, 6) set OpenClaw config (plugins.enabled, slots.memory, entries.memory-powermem).
 
-**After running:** Start or ensure PowerMem is running (HTTP: `powermem-server --port 8000` in a dir with `.env`; CLI: `pmem` on PATH and optional `.env`). Then start OpenClaw: `openclaw gateway`.
+**After running (CLI):** Ensure `pmem` is on PATH (or set `pmemPath`), then `openclaw gateway` and `openclaw ltm health`. With plugin defaults you normally **do not** need to edit `powermem.env`—LLM keys come from OpenClaw. Optional template file may still be created under `~/.openclaw/powermem/`.
+
+**After running (HTTP / enterprise):** Start PowerMem in a directory with `.env`, then `openclaw gateway`.
 
 ---
 
 ## Quick Start (Let OpenClaw Install It)
 
-Copy the skill file into OpenClaw’s skill directory, then ask OpenClaw to do the rest.
+Copy a **skill** into OpenClaw’s skills directory, then ask OpenClaw to follow it.
+
+### Easiest (C端 / personal users)
+
+Use the **minimal** skill—short steps, no `powermem.env` required:
+
+**Linux / macOS:**
+
+```bash
+mkdir -p ~/.openclaw/skills/powermem-memory-quickstart
+cp /path/to/memory-powermem/skills/powermem-memory-quickstart/SKILL.md \
+   ~/.openclaw/skills/powermem-memory-quickstart/
+```
+
+Then say e.g. **「PowerMem 快速安装」** or **“PowerMem quickstart”**.
+
+### Full install guide (more options & troubleshooting)
 
 **Linux / macOS:**
 
@@ -57,7 +77,7 @@ Copy-Item "path\to\memory-powermem\skills\install-powermem-memory\SKILL.md" `
   "$env:USERPROFILE\.openclaw\skills\install-powermem-memory\"
 ```
 
-Then tell OpenClaw: **「安装 PowerMem 记忆」** or **“Install PowerMem memory”** — it will read the skill and guide you through setup (install plugin, configure, start PowerMem if needed).
+Then say **「安装 PowerMem 记忆」** or **“Install PowerMem memory”**.
 
 For manual installation, continue below.
 
@@ -68,26 +88,27 @@ For manual installation, continue below.
 | Component    | Purpose |
 |-------------|---------|
 | **OpenClaw** | CLI + gateway; run `openclaw --version` and `openclaw onboard` if needed. |
-| **PowerMem** | Either (1) **HTTP**: run `powermem-server` (pip or Docker) and have a base URL, or (2) **CLI**: have `pmem` on PATH and a PowerMem `.env` (optional). |
+| **PowerMem** | **CLI (recommended):** `pip install powermem`, `pmem` on PATH, `.env` at `~/.openclaw/powermem/powermem.env` (install script can create a template). **HTTP:** run `powermem-server` and set plugin `mode: http` + `baseUrl`. |
 
-You do **not** need to install PowerMem inside OpenClaw; the plugin talks to an existing server or runs `pmem` locally.
+You do **not** install PowerMem inside OpenClaw; the plugin runs `pmem` subprocesses (CLI) or calls a HTTP API (server).
 
 ---
 
 ## Manual Installation Steps
 
-### 1. Install and start PowerMem (if using HTTP mode)
-
-See [README.md](README.md#step-1-install-and-start-powermem): install with `pip install powermem` or Docker, create `.env` (LLM + Embedding), then:
+### 1. Install PowerMem (CLI first)
 
 ```bash
-cd /path/to/dir/with/.env
-powermem-server --host 0.0.0.0 --port 8000
+python3 -m venv ~/.openclaw/powermem/.venv
+source ~/.openclaw/powermem/.venv/bin/activate
+pip install powermem
 ```
 
-Verify: `curl -s http://localhost:8000/api/v1/system/health`
+Create or edit `~/.openclaw/powermem/powermem.env` (see [PowerMem .env.example](https://github.com/oceanbase/powermem/blob/master/.env.example)). Minimal fields: `DATABASE_PROVIDER=sqlite`, `SQLITE_PATH` (absolute path recommended), `LLM_*`, `EMBEDDING_*`.
 
-(If using **CLI mode** only, ensure `pmem` is on PATH and optionally set `POWERMEM_ENV_FILE` or use `--env-file`; the plugin will call `pmem` for each request.)
+Verify: `pmem --version` (with venv activated).
+
+**(Optional) HTTP mode:** install PowerMem, put `.env` in a working directory, run `powermem-server --host 0.0.0.0 --port 8000`, verify `curl -s http://localhost:8000/api/v1/system/health`.
 
 ### 2. Install the plugin into OpenClaw
 
@@ -101,9 +122,9 @@ Confirm: `openclaw plugins list` shows `memory-powermem`.
 
 ### 3. Configure OpenClaw
 
-Edit `~/.openclaw/openclaw.json` (or set via `openclaw config set`):
+Edit `~/.openclaw/openclaw.json` (or set via `openclaw config set`).
 
-**HTTP mode:**
+**CLI mode (default, no server):**
 
 ```json
 {
@@ -114,8 +135,9 @@ Edit `~/.openclaw/openclaw.json` (or set via `openclaw config set`):
       "memory-powermem": {
         "enabled": true,
         "config": {
-          "mode": "http",
-          "baseUrl": "http://localhost:8000",
+          "mode": "cli",
+          "envFile": "/home/you/.openclaw/powermem/powermem.env",
+          "pmemPath": "pmem",
           "autoCapture": true,
           "autoRecall": true,
           "inferOnAdd": true
@@ -126,18 +148,21 @@ Edit `~/.openclaw/openclaw.json` (or set via `openclaw config set`):
 }
 ```
 
-**CLI mode (no server):**
+Use your real home path for `envFile`. If `pmem` is only inside a venv, set `pmemPath` to the absolute path of the `pmem` binary.
+
+**HTTP mode (shared / enterprise):**
 
 ```json
 "config": {
-  "mode": "cli",
-  "envFile": "/path/to/powermem/.env",
-  "pmemPath": "pmem",
+  "mode": "http",
+  "baseUrl": "http://localhost:8000",
   "autoCapture": true,
   "autoRecall": true,
   "inferOnAdd": true
 }
 ```
+
+If you omit `mode` but set a non-empty `baseUrl`, the plugin treats the backend as **http** (backward compatible).
 
 ### 4. Restart and verify
 
@@ -171,8 +196,8 @@ OPENCLAW_STATE_DIR=~/.openclaw-second openclaw config set plugins.slots.memory m
 
 | Symptom | Fix |
 |--------|-----|
-| `openclaw ltm health` fails | PowerMem server not running or wrong `baseUrl`; for CLI, check `pmem` on PATH and `.env`. |
+| `openclaw ltm health` fails | **CLI:** `pmem` not on PATH or wrong `pmemPath`; fix `.env` keys. **HTTP:** server down or wrong `baseUrl`. |
 | Plugin not loaded | Ensure `plugins.slots.memory` is `memory-powermem` and gateway restarted. |
-| Add/search returns 500 or empty | Check PowerMem logs; usually LLM/Embedding API key or model in `.env`. |
+| Add/search returns 500 or empty | Check PowerMem logs; usually missing `LLM_*` / `EMBEDDING_*` in `.env`. |
 
 More: [README.md#troubleshooting](README.md#troubleshooting).

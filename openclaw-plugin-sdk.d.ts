@@ -27,6 +27,17 @@ declare module "openclaw/plugin-sdk/memory-core" {
   };
 
   export type OpenClawPluginApi = {
+    /** Full gateway config (OpenClaw ≥ ~2026.3); used to derive LLM keys for memory plugins. */
+    config?: unknown;
+    runtime?: {
+      state?: { resolveStateDir?: (env?: NodeJS.ProcessEnv) => string };
+      modelAuth?: {
+        resolveApiKeyForProvider?: (params: {
+          provider: string;
+          cfg?: unknown;
+        }) => Promise<{ apiKey?: string }>;
+      };
+    };
     pluginConfig?: Record<string, unknown>;
     logger: { info: (msg: string) => void; warn: (msg: string) => void; debug?: (msg: string) => void };
     registerTool: (tool: unknown, opts?: { name?: string; names?: string[] }) => void;

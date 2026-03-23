@@ -8,6 +8,7 @@ import {
   resolveAgentId,
   DEFAULT_USER_ID,
   DEFAULT_AGENT_ID,
+  DEFAULT_PLUGIN_CONFIG,
   type PowerMemConfig,
 } from "../config.js";
 
@@ -39,6 +40,34 @@ describe("powerMemConfigSchema", () => {
     }) as PowerMemConfig;
     expect(cfg.mode).toBe("cli");
     expect(cfg.pmemPath).toBe("pmem");
+  });
+
+  it("infers http when mode omitted but baseUrl is set", () => {
+    const cfg = powerMemConfigSchema.parse({
+      baseUrl: "http://localhost:8000",
+      autoCapture: true,
+      autoRecall: true,
+      inferOnAdd: true,
+    }) as PowerMemConfig;
+    expect(cfg.mode).toBe("http");
+    expect(cfg.baseUrl).toBe("http://localhost:8000");
+  });
+
+  it("defaults to cli when mode and baseUrl are empty", () => {
+    const cfg = powerMemConfigSchema.parse({
+      baseUrl: "",
+      autoCapture: true,
+      autoRecall: true,
+      inferOnAdd: true,
+    }) as PowerMemConfig;
+    expect(cfg.mode).toBe("cli");
+  });
+
+  it("DEFAULT_PLUGIN_CONFIG uses cli without env file and OpenClaw model injection", () => {
+    expect(DEFAULT_PLUGIN_CONFIG.mode).toBe("cli");
+    expect(DEFAULT_PLUGIN_CONFIG.baseUrl).toBe("");
+    expect(DEFAULT_PLUGIN_CONFIG.envFile).toBeUndefined();
+    expect(DEFAULT_PLUGIN_CONFIG.useOpenClawModel).toBe(true);
   });
 
   it("rejects non-object config", () => {

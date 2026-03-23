@@ -3,6 +3,9 @@
  * Validates baseUrl, optional apiKey, and user/agent mapping.
  */
 
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 function assertAllowedKeys(
   value: Record<string, unknown>,
   allowed: string[],
@@ -33,6 +36,11 @@ export type PowerMemConfig = {
   envFile?: string;
   /** CLI mode: path to pmem binary (default "pmem"). */
   pmemPath?: string;
+  /**
+   * When true (default), inject LLM/embedding from OpenClaw gateway config into `pmem`
+   * (overrides the same keys from an optional .env file). SQLite defaults live under the OpenClaw state dir.
+   */
+  useOpenClawModel?: boolean;
   userId?: string;
   agentId?: string;
   /** Max memories to return in recall / inject in auto-recall. Default 5. */
@@ -53,6 +61,7 @@ const ALLOWED_KEYS = [
   "apiKey",
   "envFile",
   "pmemPath",
+  "useOpenClawModel",
   "userId",
   "agentId",
   "recallLimit",
@@ -70,8 +79,12 @@ export const powerMemConfigSchema = {
     const cfg = value as Record<string, unknown>;
     assertAllowedKeys(cfg, [...ALLOWED_KEYS], "memory-powermem config");
 
+    const modeExplicit =
+      cfg.mode === "cli" || cfg.mode === "http" ? cfg.mode : undefined;
+    const baseUrlForInfer =
+      typeof cfg.baseUrl === "string" ? cfg.baseUrl.trim() : "";
     const mode =
-      (cfg.mode === "cli" || cfg.mode === "http" ? cfg.mode : undefined) ?? "http";
+      modeExplicit ?? (baseUrlForInfer ? "http" : "cli");
 
     let baseUrl = "";
     let apiKey: string | undefined;
@@ -106,6 +119,7 @@ export const powerMemConfigSchema = {
       apiKey,
       envFile,
       pmemPath,
+      useOpenClawModel: cfg.useOpenClawModel !== false,
       userId:
         typeof cfg.userId === "string" && cfg.userId.trim()
           ? cfg.userId.trim()
@@ -149,13 +163,23 @@ function toRecallScoreThreshold(v: unknown): number {
 export const DEFAULT_USER_ID = "openclaw-user";
 export const DEFAULT_AGENT_ID = "openclaw-agent";
 
+/** Canonical PowerMem `.env` path for consumer (CLI) setups; matches install.sh. */
+export function defaultConsumerPowermemEnvPath(): string {
+  return join(homedir(), ".openclaw", "powermem", "powermem.env");
+}
+
 /**
  * Default plugin config when openclaw.json has no plugins.entries["memory-powermem"].config.
- * Allows "openclaw plugins install memory-powermem" to work without manual config.
+ * Consumer default: CLI, no .env required — SQLite under OpenClaw state dir + LLM from OpenClaw `agents.defaults.model`.
+ * Optional: set `envFile` to merge a powermem .env under OpenClaw-derived vars.
+ * Enterprise / shared server: set `mode: "http"` and `baseUrl`.
  */
 export const DEFAULT_PLUGIN_CONFIG: PowerMemConfig = {
-  mode: "http",
-  baseUrl: "http://localhost:8000",
+  mode: "cli",
+  baseUrl: "",
+  envFile: undefined,
+  pmemPath: "pmem",
+  useOpenClawModel: true,
   autoCapture: true,
   autoRecall: true,
   inferOnAdd: true,

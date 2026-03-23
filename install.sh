@@ -22,11 +22,14 @@ SKIP_OC="${SKIP_OPENCLAW:-0}"
 HOME_DIR="${HOME:-$USERPROFILE}"
 OPENCLAW_DIR="${HOME_DIR}/.openclaw"
 PLUGIN_DEST="${OPENCLAW_DIR}/extensions/memory-powermem"
-SELECTED_MODE="http"
+# Consumer default: CLI + ~/.openclaw/powermem/powermem.env (no HTTP server).
+SELECTED_MODE="cli"
 BASE_URL="http://localhost:8000"
 API_KEY=""
 ENV_FILE=""
 PMEM_PATH="pmem"
+POWMEM_DATA_DIR=""
+DEFAULT_POWMEM_ENV=""
 
 # Parse args (curl | bash -s -- ...)
 _expect_workdir=""
@@ -49,7 +52,7 @@ for arg in "$@"; do
     echo "   or: bash install.sh [-y] [--workdir <path>]"
     echo ""
     echo "Options:"
-    echo "  -y, --yes        Non-interactive (defaults: http, baseUrl http://localhost:8000)"
+    echo "  -y, --yes        Non-interactive (defaults: cli, env ~/.openclaw/powermem/powermem.env)"
     echo "  --workdir <path> OpenClaw config dir (default: ~/.openclaw)"
     echo "  -h, --help       Show this help"
     echo ""
@@ -126,22 +129,62 @@ select_workdir() {
   fi
 }
 
+resolve_powermem_paths() {
+  mkdir -p "${OPENCLAW_DIR}"
+  OPENCLAW_DIR="$(cd "${OPENCLAW_DIR}" && pwd)"
+  PLUGIN_DEST="${OPENCLAW_DIR}/extensions/memory-powermem"
+  POWMEM_DATA_DIR="${OPENCLAW_DIR}/powermem"
+  DEFAULT_POWMEM_ENV="${POWMEM_DATA_DIR}/powermem.env"
+}
+
+# Create a minimal SQLite-oriented .env if missing (edit LLM_/EMBEDDING_* before use).
+seed_powermem_env_if_missing() {
+  local target="$1"
+  [[ -n "$target" ]] || return 0
+  mkdir -p "$(dirname "${target}")" "${POWMEM_DATA_DIR}/data"
+  local sqlite_path="${POWMEM_DATA_DIR}/data/powermem.db"
+  if [[ -f "${target}" ]]; then
+    return 0
+  fi
+  info "Creating PowerMem template ${target}"
+  cat > "${target}" << EOF
+TIMEZONE=UTC
+DATABASE_PROVIDER=sqlite
+SQLITE_PATH=${sqlite_path}
+SQLITE_ENABLE_WAL=true
+SQLITE_COLLECTION=memories
+
+LLM_PROVIDER=qwen
+LLM_API_KEY=
+LLM_MODEL=qwen-plus
+
+EMBEDDING_PROVIDER=qwen
+EMBEDDING_API_KEY=
+EMBEDDING_MODEL=text-embedding-v4
+EMBEDDING_DIMS=1536
+EOF
+}
+
 select_mode_and_config() {
   if [[ "$INSTALL_YES" == "1" ]]; then
-    SELECTED_MODE="http"
-    BASE_URL="http://localhost:8000"
+    SELECTED_MODE="cli"
+    ENV_FILE="${DEFAULT_POWMEM_ENV}"
+    seed_powermem_env_if_missing "${ENV_FILE}"
     return 0
   fi
   echo ""
-  read -r -p "Backend mode: http or cli [http]: " _mode < /dev/tty || true
-  _mode="${_mode:-http}"
+  read -r -p "Backend mode: http or cli [cli]: " _mode < /dev/tty || true
+  _mode="${_mode:-cli}"
   if [[ "$_mode" == "cli" ]]; then
     SELECTED_MODE="cli"
-    read -r -p "Path to PowerMem .env (optional): " ENV_FILE < /dev/tty || true
+    read -r -p "Path to PowerMem .env [${DEFAULT_POWMEM_ENV}]: " _ef < /dev/tty || true
+    ENV_FILE="${_ef:-${DEFAULT_POWMEM_ENV}}"
+    seed_powermem_env_if_missing "${ENV_FILE}"
     read -r -p "pmem binary path [pmem]: " _pmem < /dev/tty || true
     PMEM_PATH="${_pmem:-pmem}"
   else
     SELECTED_MODE="http"
+    ENV_FILE=""
     read -r -p "PowerMem server base URL [http://localhost:8000]: " _url < /dev/tty || true
     BASE_URL="${_url:-http://localhost:8000}"
     read -r -p "API Key (optional): " API_KEY < /dev/tty || true
@@ -169,7 +212,7 @@ check_openclaw() {
 deploy_from_repo() {
   info "Deploying plugin from current directory..."
   mkdir -p "${PLUGIN_DEST}"
-  for f in index.ts config.ts client.ts client-cli.ts openclaw.plugin.json package.json tsconfig.json .gitignore; do
+  for f in index.ts config.ts client.ts client-cli.ts openclaw-powermem-env.ts openclaw.plugin.json package.json tsconfig.json .gitignore; do
     if [[ -f "$f" ]]; then
       cp "$f" "${PLUGIN_DEST}/"
     fi
@@ -194,6 +237,7 @@ deploy_from_github() {
     "config.ts"
     "client.ts"
     "client-cli.ts"
+    "openclaw-powermem-env.ts"
     "openclaw.plugin.json"
     "package.json"
     "tsconfig.json"
@@ -236,13 +280,16 @@ configure_openclaw() {
   "${oc_env[@]}" openclaw config set plugins.entries.memory-powermem.config.autoCapture true --json
   "${oc_env[@]}" openclaw config set plugins.entries.memory-powermem.config.autoRecall true --json
   "${oc_env[@]}" openclaw config set plugins.entries.memory-powermem.config.inferOnAdd true --json
+  "${oc_env[@]}" openclaw config set plugins.entries.memory-powermem.config.useOpenClawModel true --json
 
   if [[ "$SELECTED_MODE" == "http" ]]; then
     "${oc_env[@]}" openclaw config set plugins.entries.memory-powermem.config.baseUrl "${BASE_URL}"
     [[ -n "$API_KEY" ]] && "${oc_env[@]}" openclaw config set plugins.entries.memory-powermem.config.apiKey "${API_KEY}"
   else
     "${oc_env[@]}" openclaw config set plugins.entries.memory-powermem.config.pmemPath "${PMEM_PATH}"
-    [[ -n "$ENV_FILE" ]] && "${oc_env[@]}" openclaw config set plugins.entries.memory-powermem.config.envFile "${ENV_FILE}"
+    if [[ -n "$ENV_FILE" ]]; then
+      "${oc_env[@]}" openclaw config set plugins.entries.memory-powermem.config.envFile "${ENV_FILE}"
+    fi
   fi
 
   info "OpenClaw plugin configured ✓"
@@ -254,6 +301,7 @@ main() {
   echo ""
 
   select_workdir
+  resolve_powermem_paths
   info "Target: ${OPENCLAW_DIR}"
 
   select_mode_and_config
@@ -280,9 +328,10 @@ main() {
     echo "  2. openclaw gateway"
     echo "  3. openclaw ltm health"
   else
-    echo "  1. Ensure pmem is on PATH (and optional .env)"
-    echo "  2. openclaw gateway"
-    echo "  3. openclaw ltm health"
+    echo "  1. pip install powermem (venv recommended); put pmem on PATH when starting the gateway"
+    echo "  2. Edit LLM_* and EMBEDDING_* in: ${ENV_FILE:-$DEFAULT_POWMEM_ENV}"
+    echo "  3. openclaw gateway"
+    echo "  4. openclaw ltm health"
   fi
   echo ""
 }
