@@ -158,8 +158,8 @@ JSON response means the server is up. API docs: `http://localhost:8000/docs`.
 ## Install options
 
 - **One-click (Linux/macOS):** See [INSTALL.md](INSTALL.md) for `install.sh` (curl or run from repo root).
-- **Let OpenClaw install it (simplest):** Copy [skills/powermem-memory-quickstart/SKILL.md](skills/powermem-memory-quickstart/SKILL.md) to `~/.openclaw/skills/powermem-memory-quickstart/`, then say **「PowerMem 快速安装」** or **“PowerMem quickstart”**.  
-- **Full documentation (troubleshooting and advanced topics):** [skills/install-powermem-memory/SKILL.md](skills/install-powermem-memory/SKILL.md) → **「安装 PowerMem 记忆」** / **“Install PowerMem memory”**.
+- **OpenClaw skill (minimal install):** Copy [skills/install-powermem-memory-minimal/SKILL.md](skills/install-powermem-memory-minimal/SKILL.md) to `~/.openclaw/skills/install-powermem-memory-minimal/`, then say **「PowerMem 快速安装」** / **“PowerMem quickstart”** or **“Minimal install memory-powermem”** / **“Install powermem memory minimal”**.  
+- **OpenClaw skill (full guide):** Copy [skills/install-powermem-memory/SKILL.md](skills/install-powermem-memory/SKILL.md) (and its sibling `.md` files in that folder if you mirror the repo) to `~/.openclaw/skills/install-powermem-memory/`, then say **「安装 PowerMem 记忆」** / **“Install PowerMem memory”**. The minimal and full skills are **independent**; use whichever fits your workflow.
 - **Manual:** Steps below.
 
 ---

@@ -43,23 +43,25 @@ The script will: 1) resolve OpenClaw workdir, 2) ask mode (**cli** / http) and p
 
 ## Quick Start (Let OpenClaw Install It)
 
-Copy a **skill** into OpenClaw’s skills directory, then ask OpenClaw to follow it.
+Copy **one** skill you want into OpenClaw’s skills directory, then ask OpenClaw to follow it. The two skills below are **independent** (each is complete for its scope; neither references the other).
 
-### Easiest (C端 / personal users)
+### OpenClaw skill — minimal install (`install-powermem-memory-minimal`)
 
-Use the **minimal** skill—short steps, no `powermem.env` required:
+Short steps, no `powermem.env` required.
 
 **Linux / macOS:**
 
 ```bash
-mkdir -p ~/.openclaw/skills/powermem-memory-quickstart
-cp /path/to/memory-powermem/skills/powermem-memory-quickstart/SKILL.md \
-   ~/.openclaw/skills/powermem-memory-quickstart/
+mkdir -p ~/.openclaw/skills/install-powermem-memory-minimal
+cp /path/to/memory-powermem/skills/install-powermem-memory-minimal/SKILL.md \
+   ~/.openclaw/skills/install-powermem-memory-minimal/
 ```
 
-Then say e.g. **「PowerMem 快速安装」** or **“PowerMem quickstart”**.
+Then say e.g. **「PowerMem 快速安装」** / **“PowerMem quickstart”** or **「memory-powermem 最小安装」** / **“Minimal install memory-powermem”** / **“Install powermem memory minimal”**.
 
-### Full install guide (more options & troubleshooting)
+### OpenClaw skill — full guide (`install-powermem-memory`)
+
+Install, configuration options, tools, and troubleshooting (includes bundled reference docs in the skill folder).
 
 **Linux / macOS:**
 
