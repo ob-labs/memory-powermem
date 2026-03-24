@@ -91,7 +91,13 @@ The curl **`install.sh`** deploys the plugin and OpenClaw entries; with **`-y`**
    Optional: `apiKey` if the server uses auth.
 
 7. **Verify**  
-   Restart **gateway**, then:
+   Restart **gateway**, then in another terminal:
+
+   ```bash
+   openclaw plugins list
+   ```
+
+   Confirm **memory-powermem** is listed and its status is **loaded**. If it is missing or not loaded, fix install/slot config and restart the gateway before running LTM checks.
 
    ```bash
    openclaw ltm health
@@ -147,4 +153,4 @@ Restart the gateway after slot or plugin config changes.
 | **Health OK but add/search errors** | Embedding/LLM mismatch for your provider—see gateway logs; try optional **PowerMem `.env`** from [.env.example](https://github.com/oceanbase/powermem/blob/master/.env.example). |
 | **Wrong SQLite file / instance** | Data is under **that OpenClaw instance’s `stateDir`** (`OPENCLAW_STATE_DIR` / `--workdir`). |
 | **HTTP mode** | Server running, **`baseUrl`** correct, **`apiKey`** if enabled. |
-| **Plugin not loaded** | `plugins.slots.memory` = `memory-powermem`; restart gateway. |
+| **`openclaw plugins list`**: no `memory-powermem`, or status is not **loaded** | Re-run plugin install; set `plugins.enabled` true and `plugins.slots.memory` = `memory-powermem`; restart **gateway**; run `openclaw plugins list` again until **memory-powermem** shows **loaded**. |

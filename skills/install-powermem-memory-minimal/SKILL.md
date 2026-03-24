@@ -62,7 +62,12 @@ triggers:
    ```bash
    openclaw gateway
    ```
-   另开终端：
+   另开终端，**先**确认插件已被网关加载：
+   ```bash
+   openclaw plugins list
+   ```
+   输出里要有 **memory-powermem**，且其状态为 **loaded**（已加载）。若只有安装记录、状态不是 loaded，先按下面「若某一步失败」处理，**不要**跳过这步直接去测 `ltm`。  
+   通过后再检查记忆健康并试写读：
    ```bash
    openclaw ltm health
    ```
@@ -81,6 +86,7 @@ triggers:
 | `python3 --version` 低于 3.10 | **先升级或换用** `python3.11` / `python3.12` 等，再重做「检查 Python」与 venv 步骤；不要跳过版本检查强行 `pip install`。 |
 | `pip install powermem` 报错 | 再次确认 Python ≥ 3.10；换干净 venv 再试。 |
 | `pmem` 找不到 | 激活 venv，或配置 **`pmemPath`** 为绝对路径。 |
+| `plugins list` 没有 **memory-powermem**，或状态不是 **loaded** | 确认已执行安装脚本或 `openclaw plugins install`；`plugins.enabled` 为 true、`plugins.slots.memory` 为 **memory-powermem**；改完后**重启 gateway**，再执行 `openclaw plugins list` 复查。 |
 | `ltm health` 不健康 | 确认 OpenClaw 里**默认模型**和 API Key 本身能聊天；升级 OpenClaw 到较新版本后再试。 |
 | 想要更多选项（多实例、HTTP、自建服务器等） | 查阅 **[memory-powermem](https://github.com/ob-labs/memory-powermem)** 仓库根目录的 **INSTALL.md** 与 **README**。 |
 
