@@ -1,6 +1,6 @@
 ---
 name: install-powermem-memory
-description: Step-by-step guide to install and configure the PowerMem long-term memory plugin. After setup, the plugin auto-captures conversation highlights and auto-recalls relevant memories.
+description: Step-by-step guide to install and configure the PowerMem long-term memory plugin (full path, options, troubleshooting). After setup, the plugin auto-captures conversation highlights and auto-recalls relevant memories. This skill is self-contained and can be published independently of any minimal-install skill.
 triggers:
   - "安装 PowerMem 记忆"
   - "安装 PowerMem 记忆插件"
@@ -20,8 +20,6 @@ This skill folder includes supplementary docs:
 - **powermem-intro.md** — What PowerMem is, features, vs file-based memory.
 - **config-reference.md** — Config keys, state dir, commands.
 
-**只想最少步骤的个人用户** → 用隔壁文件夹 **`skills/powermem-memory-quickstart/SKILL.md`**（更短、不写 `powermem.env`）。
-
 ## How It Works
 
 - **Auto-Capture**: After a conversation, the plugin sends valuable user/assistant text to PowerMem (optional infer / intelligent extraction).
@@ -29,7 +27,7 @@ This skill folder includes supplementary docs:
 
 ## When User Asks to Install
 
-**Recommended order (TO C):** (1) OpenClaw installed and **default model + provider auth** configured. (2) `pip install powermem` and `pmem` available to the gateway (PATH or `pmemPath`). (3) Install the **memory-powermem** plugin. **No `powermem.env` is required** for the default path.
+**Recommended order (TO C):** (1) OpenClaw installed and **default model + provider auth** configured. (2) **Python 3.10+ verified** (`python3 --version`) *before* venv / `pip install`. (3) `pip install powermem` and `pmem` available to the gateway (PATH or `pmemPath`). (4) Install the **memory-powermem** plugin. **No `powermem.env` is required** for the default path.
 
 The curl **`install.sh`** deploys the plugin and OpenClaw entries; with **`-y`** it may still create **`~/.openclaw/powermem/powermem.env`** as an *optional* template—it does **not** run `pip install powermem`. That file is **not** required if the user relies on **OpenClaw-injected** LLM + default SQLite.
 
@@ -37,8 +35,14 @@ The curl **`install.sh`** deploys the plugin and OpenClaw entries; with **`-y`**
    `openclaw --version`. If missing: `npm install -g openclaw`, `openclaw onboard`.  
    Ensure **`agents.defaults.model`** is set (e.g. `openai/gpt-4o-mini`) and the corresponding **provider / API key** works for normal chat—the plugin reuses that for PowerMem when **`useOpenClawModel`** is true (default).
 
-2. **Install PowerMem (CLI — default)**  
-   - Python **3.10+**: `python3 --version`.  
+2. **Check Python (required before venv / pip)**  
+   PowerMem needs **Python 3.10 or newer**. Run **`python3 --version`** first; the minor version must be **≥ 10** (e.g. 3.10.x, 3.12.x). Optional strict check:
+   ```bash
+   python3 -c "import sys; assert sys.version_info >= (3, 10), 'Need Python 3.10+'; print(sys.version.split()[0], 'OK')"
+   ```
+   If it fails: upgrade Python or use a specific binary (e.g. `python3.12`) for all commands below instead of `python3`.
+
+3. **Install PowerMem (CLI — default)**  
    - Venv recommended: e.g. `python3 -m venv ~/.openclaw/powermem/.venv && source ~/.openclaw/powermem/.venv/bin/activate`.  
    - `pip install powermem`.  
    - **Defaults:** Plugin injects **SQLite** at `<OpenClaw stateDir>/powermem/data/powermem.db` and **LLM + embedding** env vars derived from OpenClaw. Typical `stateDir` is `~/.openclaw` unless the user uses another instance (`OPENCLAW_STATE_DIR`, `--workdir`).  
@@ -46,14 +50,14 @@ The curl **`install.sh`** deploys the plugin and OpenClaw entries; with **`-y`**
    - **`useOpenClawModel: false`:** Disables injection; user must supply a **complete** PowerMem config via `.env` and/or environment variables.  
    - **Verify:** `pmem --version`. If the gateway does not inherit the venv, set **`pmemPath`** to the absolute path of `pmem`.
 
-3. **HTTP path (enterprise / shared server)**  
-   - `pip install powermem`, `.env` in server working directory, `powermem-server --host 0.0.0.0 --port 8000`.  
+4. **HTTP path (enterprise / shared server)**  
+   - Same **Python 3.10+** requirement as CLI; then `pip install powermem`, `.env` in server working directory, `powermem-server --host 0.0.0.0 --port 8000`.  
    - Check: `curl -s http://localhost:8000/api/v1/system/health`.
 
-4. **Install the plugin**  
+5. **Install the plugin**  
    `openclaw plugins install /path/to/memory-powermem`, or **`install.sh`** from [INSTALL.md](https://github.com/ob-labs/memory-powermem/blob/main/INSTALL.md).
 
-5. **Configure OpenClaw**  
+6. **Configure OpenClaw**  
 
    **CLI — minimal (recommended, matches plugin defaults):**  
    Do **not** set `envFile` unless you need a file. Example:
@@ -86,8 +90,14 @@ The curl **`install.sh`** deploys the plugin and OpenClaw entries; with **`-y`**
 
    Optional: `apiKey` if the server uses auth.
 
-6. **Verify**  
-   Restart **gateway**, then:
+7. **Verify**  
+   Restart **gateway**, then in another terminal:
+
+   ```bash
+   openclaw plugins list
+   ```
+
+   Confirm **memory-powermem** is listed and its status is **loaded**. If it is missing or not loaded, fix install/slot config and restart the gateway before running LTM checks.
 
    ```bash
    openclaw ltm health
@@ -136,10 +146,11 @@ Restart the gateway after slot or plugin config changes.
 
 | Symptom | Fix |
 |---------|-----|
-| **`pip install powermem` fails** | Python 3.10+, clean venv. See [PowerMem issues](https://github.com/oceanbase/powermem/issues). |
+| **Python < 3.10** | Run step 2 first; upgrade Python or use `python3.11` / `python3.12` for venv and `pip install`. Do not skip the version check. |
+| **`pip install powermem` fails** | Confirm Python 3.10+, clean venv. See [PowerMem issues](https://github.com/oceanbase/powermem/issues). |
 | **`pmem` not found** | Activate venv or set **`pmemPath`** to the full binary. |
 | **`openclaw ltm health` unhealthy (CLI)** | Confirm **`agents.defaults.model`** and provider keys in OpenClaw; gateway version should expose plugin **`config`** + **`runtime.modelAuth`**. Or set **`useOpenClawModel: false`** and a full **`envFile`**. |
 | **Health OK but add/search errors** | Embedding/LLM mismatch for your provider—see gateway logs; try optional **PowerMem `.env`** from [.env.example](https://github.com/oceanbase/powermem/blob/master/.env.example). |
 | **Wrong SQLite file / instance** | Data is under **that OpenClaw instance’s `stateDir`** (`OPENCLAW_STATE_DIR` / `--workdir`). |
 | **HTTP mode** | Server running, **`baseUrl`** correct, **`apiKey`** if enabled. |
-| **Plugin not loaded** | `plugins.slots.memory` = `memory-powermem`; restart gateway. |
+| **`openclaw plugins list`**: no `memory-powermem`, or status is not **loaded** | Re-run plugin install; set `plugins.enabled` true and `plugins.slots.memory` = `memory-powermem`; restart **gateway**; run `openclaw plugins list` again until **memory-powermem** shows **loaded**. |
