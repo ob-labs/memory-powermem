@@ -26,9 +26,9 @@
     },
     "pmemPath": {
       "label": "pmem binary path",
-      "placeholder": "pmem",
+      "placeholder": "auto",
       "advanced": true,
-      "help": "CLI mode: path to pmem (or powermem) executable. Default: pmem"
+      "help": "CLI mode: auto = npm package powermem (TypeScript) if installed, else pmem on PATH; bundled = only npm powermem; or absolute path / command name (e.g. Python venv pmem)"
     },
     "userId": {
       "label": "User ID",

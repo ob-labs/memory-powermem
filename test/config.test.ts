@@ -39,7 +39,7 @@ describe("powerMemConfigSchema", () => {
       inferOnAdd: false,
     }) as PowerMemConfig;
     expect(cfg.mode).toBe("cli");
-    expect(cfg.pmemPath).toBe("pmem");
+    expect(cfg.pmemPath).toBe("auto");
   });
 
   it("infers http when mode omitted but baseUrl is set", () => {

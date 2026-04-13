@@ -30,6 +30,7 @@ import {
   buildDefaultSqlitePowermemEnv,
   buildPowermemCliProcessEnv,
 } from "./openclaw-powermem-env.js";
+import { resolvePmemExecutable } from "./resolve-powermem-cli.js";
 
 type GatewayApi = OpenClawPluginApi & {
   config?: unknown;
@@ -64,7 +65,7 @@ const memoryPlugin = {
   id: "memory-powermem",
   name: "Memory (PowerMem)",
   description:
-    "PowerMem-backed long-term memory (intelligent extraction, forgetting curve). Default: local CLI (pmem); optional HTTP server for shared deployments.",
+    "PowerMem-backed long-term memory (intelligent extraction, forgetting curve). Default: local CLI (npm powermem / TS, or pmem on PATH); optional HTTP server for shared deployments.",
   kind: "memory" as const,
   configSchema: powerMemConfigSchema,
 
@@ -106,7 +107,9 @@ const memoryPlugin = {
       cfg.mode === "cli"
         ? PowerMemCLIClient.fromConfig(cfg, userId, agentId, { buildProcessEnv })
         : PowerMemClient.fromConfig(cfg, userId, agentId);
-    const modeLabel = cfg.mode === "cli" ? `cli (${cfg.pmemPath ?? "pmem"})` : cfg.baseUrl;
+    const resolvedPmem =
+      cfg.mode === "cli" ? resolvePmemExecutable(cfg.pmemPath ?? "auto") : "";
+    const modeLabel = cfg.mode === "cli" ? `cli (${resolvedPmem})` : cfg.baseUrl;
 
     api.logger.info(
       `memory-powermem: plugin registered (mode: ${cfg.mode}, ${modeLabel}, user: ${userId}, agent: ${agentId})`,
@@ -555,7 +558,10 @@ const memoryPlugin = {
       start: async (_ctx: OpenClawPluginServiceContext) => {
         try {
           const h = await client.health();
-          const where = cfg.mode === "cli" ? `cli ${cfg.pmemPath ?? "pmem"}` : cfg.baseUrl;
+          const where =
+            cfg.mode === "cli"
+              ? `cli ${resolvePmemExecutable(cfg.pmemPath ?? "auto")}`
+              : cfg.baseUrl;
           api.logger.info(
             `memory-powermem: initialized (${where}, health: ${h.status})`,
           );

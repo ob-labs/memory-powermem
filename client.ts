@@ -6,14 +6,15 @@
 import type { PowerMemConfig } from "./config.js";
 
 export type PowerMemSearchResult = {
-  memory_id: number;
+  /** String IDs are used by powermem-ts; HTTP API may return numeric ids. */
+  memory_id: string | number;
   content: string;
   score: number;
   metadata?: Record<string, unknown>;
 };
 
 export type PowerMemAddResult = {
-  memory_id: number;
+  memory_id: string | number;
   content: string;
   user_id?: string;
   agent_id?: string;
@@ -126,7 +127,13 @@ export class PowerMemClient {
       body,
     );
     if (!res?.data) return [];
-    return res.data;
+    return res.data.map((row) => ({
+      ...row,
+      memory_id:
+        row.memory_id !== undefined && row.memory_id !== null
+          ? String(row.memory_id)
+          : row.memory_id,
+    }));
   }
 
   /** POST /api/v1/memories/search */
@@ -141,7 +148,14 @@ export class PowerMemClient {
       success: boolean;
       data?: { results?: PowerMemSearchResult[] };
     }>("POST", "/api/v1/memories/search", body);
-    return res?.data?.results ?? [];
+    const rows = res?.data?.results ?? [];
+    return rows.map((row) => ({
+      ...row,
+      memory_id:
+        row.memory_id !== undefined && row.memory_id !== null
+          ? String(row.memory_id)
+          : row.memory_id,
+    }));
   }
 
   /** DELETE /api/v1/memories/:memory_id */

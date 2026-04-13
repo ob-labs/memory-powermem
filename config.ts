@@ -34,7 +34,12 @@ export type PowerMemConfig = {
   apiKey?: string;
   /** CLI mode: path to .env (optional; pmem discovers if omitted). */
   envFile?: string;
-  /** CLI mode: path to pmem binary (default "pmem"). */
+  /**
+   * CLI: how to run `pmem`.
+   * - `auto` (default): Node `powermem` package (`powermem-ts`) if installed, else `pmem` on PATH (Python).
+   * - `bundled`: only the npm `powermem` CLI (error if missing).
+   * - `pmem` or any other string: command name or absolute path to the binary.
+   */
   pmemPath?: string;
   /**
    * When true (default), inject LLM/embedding from OpenClaw gateway config into `pmem`
@@ -111,7 +116,7 @@ export const powerMemConfigSchema = {
     const pmemPath =
       typeof pmemPathRaw === "string" && pmemPathRaw.trim()
         ? pmemPathRaw.trim()
-        : "pmem";
+        : "auto";
 
     return {
       mode,
@@ -178,7 +183,7 @@ export const DEFAULT_PLUGIN_CONFIG: PowerMemConfig = {
   mode: "cli",
   baseUrl: "",
   envFile: undefined,
-  pmemPath: "pmem",
+  pmemPath: "auto",
   useOpenClawModel: true,
   autoCapture: true,
   autoRecall: true,

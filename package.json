@@ -1,7 +1,7 @@
 {
   "name": "memory-powermem",
-  "version": "1.0.0",
-  "description": "OpenClaw plugin: long-term memory via PowerMem (default local CLI; optional HTTP server; intelligent extraction, Ebbinghaus forgetting curve).",
+  "version": "0.4.0",
+  "description": "OpenClaw plugin: long-term memory via PowerMem (default local CLI: npm powermem or pmem on PATH; optional HTTP server; intelligent extraction, Ebbinghaus forgetting curve).",
   "type": "module",
   "main": "index.ts",
   "exports": {
@@ -12,6 +12,7 @@
     "config.ts",
     "client.ts",
     "client-cli.ts",
+    "resolve-powermem-cli.ts",
     "openclaw-powermem-env.ts",
     "openclaw.plugin.json"
   ],
@@ -20,7 +21,8 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@sinclair/typebox": "^0.34.0"
+    "@sinclair/typebox": "^0.34.0",
+    "powermem": "^0.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
