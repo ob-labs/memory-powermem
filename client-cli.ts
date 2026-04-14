@@ -6,7 +6,7 @@
 
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import type { PowerMemConfig } from "./config.js";
+import { DEFAULT_PMEM_PATH, type PowerMemConfig } from "./config.js";
 import type { PowerMemAddResult, PowerMemSearchResult } from "./client.js";
 import { resolvePmemExecutable } from "./resolve-powermem-cli.js";
 
@@ -120,7 +120,7 @@ export class PowerMemCLIClient {
     const raw = cfg.envFile?.trim();
     const resolved = raw && existsSync(raw) ? raw : undefined;
     return new PowerMemCLIClient({
-      pmemPath: resolvePmemExecutable(cfg.pmemPath ?? "auto"),
+      pmemPath: resolvePmemExecutable(cfg.pmemPath ?? DEFAULT_PMEM_PATH),
       resolvedEnvFile: resolved,
       userId,
       agentId,
@@ -166,7 +166,7 @@ export class PowerMemCLIClient {
     return this.resolvedEnvFile ? ["--env-file", this.resolvedEnvFile] : [];
   }
 
-  async health(): Promise<{ status: string }> {
+  async health(): Promise<{ status: string; error?: string }> {
     const argsList = [
       ...this.envFileArgs(),
       "--json",
@@ -183,8 +183,9 @@ export class PowerMemCLIClient {
     try {
       await this.run(argsList, "health");
       return { status: "healthy" };
-    } catch {
-      return { status: "unhealthy" };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { status: "unhealthy", error: msg };
     }
   }
 

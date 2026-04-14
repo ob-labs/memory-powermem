@@ -17,6 +17,7 @@ import type { OpenClawPluginServiceContext } from "openclaw/plugin-sdk";
 import {
   powerMemConfigSchema,
   DEFAULT_PLUGIN_CONFIG,
+  DEFAULT_PMEM_PATH,
   resolveUserId,
   resolveAgentId,
   type PowerMemConfig,
@@ -108,7 +109,7 @@ const memoryPlugin = {
         ? PowerMemCLIClient.fromConfig(cfg, userId, agentId, { buildProcessEnv })
         : PowerMemClient.fromConfig(cfg, userId, agentId);
     const resolvedPmem =
-      cfg.mode === "cli" ? resolvePmemExecutable(cfg.pmemPath ?? "auto") : "";
+      cfg.mode === "cli" ? resolvePmemExecutable(cfg.pmemPath ?? DEFAULT_PMEM_PATH) : "";
     const modeLabel = cfg.mode === "cli" ? `cli (${resolvedPmem})` : cfg.baseUrl;
 
     api.logger.info(
@@ -373,6 +374,9 @@ const memoryPlugin = {
             try {
               const h = await client.health();
               console.log("PowerMem:", h.status);
+              if (h.status !== "healthy" && "error" in h && h.error) {
+                console.error(h.error);
+              }
             } catch (err) {
               console.error("PowerMem health check failed:", err);
               process.exitCode = 1;
@@ -560,15 +564,17 @@ const memoryPlugin = {
           const h = await client.health();
           const where =
             cfg.mode === "cli"
-              ? `cli ${resolvePmemExecutable(cfg.pmemPath ?? "auto")}`
+              ? `cli ${resolvePmemExecutable(cfg.pmemPath ?? DEFAULT_PMEM_PATH)}`
               : cfg.baseUrl;
+          const detail =
+            h.status !== "healthy" && "error" in h && h.error ? `: ${h.error}` : "";
           api.logger.info(
-            `memory-powermem: initialized (${where}, health: ${h.status})`,
+            `memory-powermem: initialized (${where}, health: ${h.status}${detail})`,
           );
         } catch (err) {
           const hint =
             cfg.mode === "cli"
-              ? "is pmem on PATH? Check agents.defaults.model + provider keys in OpenClaw, or set envFile to a powermem .env"
+              ? "is npm powermem installed (plugin dependencies)? Or set pmemPath to auto / a Python venv pmem. Check agents.defaults.model + keys, or envFile."
               : "is PowerMem server running?";
           api.logger.warn(
             `memory-powermem: health check failed (${hint}): ${String(err)}`,

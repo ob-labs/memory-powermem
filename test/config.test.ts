@@ -39,7 +39,7 @@ describe("powerMemConfigSchema", () => {
       inferOnAdd: false,
     }) as PowerMemConfig;
     expect(cfg.mode).toBe("cli");
-    expect(cfg.pmemPath).toBe("auto");
+    expect(cfg.pmemPath).toBe("bundled");
   });
 
   it("infers http when mode omitted but baseUrl is set", () => {
@@ -67,6 +67,7 @@ describe("powerMemConfigSchema", () => {
     expect(DEFAULT_PLUGIN_CONFIG.mode).toBe("cli");
     expect(DEFAULT_PLUGIN_CONFIG.baseUrl).toBe("");
     expect(DEFAULT_PLUGIN_CONFIG.envFile).toBeUndefined();
+    expect(DEFAULT_PLUGIN_CONFIG.pmemPath).toBe("bundled");
     expect(DEFAULT_PLUGIN_CONFIG.useOpenClawModel).toBe(true);
   });
 

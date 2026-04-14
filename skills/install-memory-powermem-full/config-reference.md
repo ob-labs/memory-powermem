@@ -4,14 +4,13 @@ Quick reference for skill **`install-memory-powermem-full`**. See **SKILL.md** i
 
 ---
 
-## Before the plugin: PowerMem (Python)
+## Before the plugin: PowerMem CLI (default = powermem-ts)
 
-- **Python 3.10+** — `python3 --version`.
-- **Install** — `pip install powermem` (virtualenv recommended).
+- **Default (recommended)** — Plugin **`pmemPath: bundled`**: **powermem-ts** via npm package **`powermem`** inside the plugin directory. Run **`pnpm install` / `npm install`** in the plugin folder when installing from a **local path** or **`-l`** symlink. Dependencies include **`@langchain/openai`** (for optional peers) and **`better-sqlite3`** (native; **pnpm 10+** may require **`pnpm.onlyBuiltDependencies`** / **`pnpm rebuild better-sqlite3`**).
 - **CLI (default)** — No `powermem.env` required for the default setup: the plugin injects **SQLite** (under the OpenClaw **state directory**) and **LLM + embedding** from OpenClaw (`agents.defaults.model` + provider keys), as long as `useOpenClawModel` is `true` (default).
-- **`pmem` on PATH** — When you start `openclaw gateway`, the same environment should expose `pmem`, or set plugin `pmemPath` to the binary’s absolute path (e.g. inside a venv).
+- **Optional: Python `pmem`** — **Python 3.10+**, `pip install powermem` ([oceanbase/powermem](https://github.com/oceanbase/powermem)), then set **`pmemPath`** to the venv **`pmem`** absolute path (gateway often does not inherit venv `PATH`).
 - **Optional `.env`** — Set `envFile` to a PowerMem `.env` if you want file-based overrides; if the file exists, it is loaded first, then OpenClaw-derived variables **override** the same keys (when `useOpenClawModel` is true).
-- **HTTP (shared server)** — Run `powermem-server` with its own `.env`; plugin `mode: http` + `baseUrl`. Verify with `curl` on `/api/v1/system/health`.
+- **HTTP (shared server)** — Run **`powermem-server`** (npm or Python/Docker); plugin `mode: http` + `baseUrl`. Verify with `curl` on `/api/v1/system/health`.
 
 ---
 
@@ -28,12 +27,12 @@ Quick reference for skill **`install-memory-powermem-full`**. See **SKILL.md** i
 
 ---
 
-## Installing PowerMem (do this before the plugin)
+## Installing PowerMem vs installing the plugin
 
-- **Python 3.10+** required. Check with `python3 --version`.
-- **Install**: `pip install powermem` (prefer inside a virtualenv).
-- **HTTP mode**: Create a `.env` (copy from [PowerMem .env.example](https://github.com/oceanbase/powermem/blob/master/.env.example)), set at least database + LLM + Embedding. Start server in that directory: `powermem-server --port 8000`. Verify: `curl -s http://localhost:8000/api/v1/system/health`.
-- **CLI mode**: Ensure `pmem` is on PATH (e.g. activate the venv where powermem is installed). Optional: `pmem config init` for `.env`.
+- **Default:** Install **memory-powermem** first; **powermem-ts** comes as a **dependency** of the plugin—**no** separate `pip install` for CLI mode.
+- **Python-only CLI path:** `pip install powermem` (prefer a virtualenv), then configure **`pmemPath`** to that `pmem` binary.
+- **HTTP mode**: Create a `.env` (see PowerMem / powermem-ts docs), set at least database + LLM + Embedding. Start server in that directory: `powermem-server --port 8000`. Verify: `curl -s http://localhost:8000/api/v1/system/health`.
+- **CLI mode (Python):** Ensure `pmem` is on PATH or set **`pmemPath`** to an absolute path. Optional: `pmem config init` for `.env`.
 
 ---
 
@@ -45,7 +44,7 @@ Quick reference for skill **`install-memory-powermem-full`**. See **SKILL.md** i
 | `baseUrl` | — | Required when `mode` is `http` (or omit `mode` and set non-empty `baseUrl` → HTTP). |
 | `apiKey` | — | HTTP: optional PowerMem server API key. |
 | `envFile` | — | CLI: optional path to PowerMem `.env` (only used if the file exists). |
-| `pmemPath` | `pmem` | CLI: `pmem` executable path. |
+| `pmemPath` | `bundled` | CLI: **`bundled`** = npm **powermem-ts** next to the plugin; **`auto`** / empty = resolve bundled then **`pmem` on PATH**; or absolute path to a `pmem` executable (e.g. Python venv). |
 | `useOpenClawModel` | `true` | Inject LLM/embedding from OpenClaw; default SQLite under state dir. Set `false` to disable injection (you must then provide a full `.env` or env vars). |
 | `recallLimit` | `5` | Max memories per recall / auto-recall. |
 | `recallScoreThreshold` | `0` | Min score (0–1) to keep a hit. |
@@ -87,7 +86,7 @@ Prefer `openclaw config set` when possible; use these when editing **`~/.opencla
         "config": {
           "mode": "cli",
           "envFile": "/home/you/.openclaw/powermem/powermem.env",
-          "pmemPath": "pmem",
+          "pmemPath": "bundled",
           "autoCapture": true,
           "autoRecall": true,
           "inferOnAdd": true
@@ -98,7 +97,7 @@ Prefer `openclaw config set` when possible; use these when editing **`~/.opencla
 }
 ```
 
-If `pmem` lives only inside a venv, set **`pmemPath`** to that binary’s absolute path. With **`useOpenClawModel: true`** and no need for a file, you can omit **`envFile`** (see **SKILL.md** for the recommended `openclaw config set` flow).
+Default **`pmemPath`** is **`bundled`** (npm **powermem-ts**). If you use **Python** `pmem` inside a venv only, set **`pmemPath`** to that binary’s absolute path. With **`useOpenClawModel: true`** and no need for a file, you can omit **`envFile`** (see **SKILL.md** for the recommended `openclaw config set` flow).
 
 **HTTP mode (shared server):**
 

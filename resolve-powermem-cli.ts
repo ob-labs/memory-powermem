@@ -1,19 +1,24 @@
 /**
  * Resolve the `pmem` executable for CLI mode.
- * - `auto`: npm `powermem` (TypeScript) if installed, else `pmem` on PATH (e.g. Python).
- * - `bundled`: only the `powermem` package entry (fails if missing).
+ * - `bundled` / `auto` / empty: npm `powermem` next to this plugin if installed, else `pmem` on PATH (e.g. Python).
  * - anything else: passed through (absolute path or command name).
  */
 
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 
-const POWEMEM_CLI_ENTRY = "powermem/dist/cli.js";
-
+/**
+ * Resolve npm `powermem`'s CLI script. We cannot use `require.resolve("powermem/dist/cli.js")`
+ * because the published package's `exports` field does not expose that subpath.
+ */
 export function resolveBundledPowermemCliPath(): string | undefined {
   try {
-    return require.resolve(POWEMEM_CLI_ENTRY);
+    const main = require.resolve("powermem");
+    const cli = join(dirname(main), "cli.js");
+    return existsSync(cli) ? cli : undefined;
   } catch {
     return undefined;
   }
@@ -24,16 +29,7 @@ export function resolveBundledPowermemCliPath(): string | undefined {
  */
 export function resolvePmemExecutable(pmemPath: string): string {
   const t = pmemPath.trim();
-  if (t === "bundled") {
-    const p = resolveBundledPowermemCliPath();
-    if (!p) {
-      throw new Error(
-        'memory-powermem: pmemPath is "bundled" but npm package "powermem" is not installed.',
-      );
-    }
-    return p;
-  }
-  if (t === "auto" || t === "") {
+  if (t === "bundled" || t === "auto" || t === "") {
     const p = resolveBundledPowermemCliPath();
     return p ?? "pmem";
   }

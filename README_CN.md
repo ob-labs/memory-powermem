@@ -186,13 +186,13 @@ openclaw plugins install -l /path/to/memory-powermem
 
 **说明：** 在某个 Node 项目里执行 `npm i memory-powermem` 只会把包装进该项目的 `node_modules`，**不会**在 OpenClaw 里注册插件。若要在 OpenClaw 里使用本插件，必须执行 `openclaw plugins install memory-powermem`（或按上面用本地路径安装），再重启 gateway。
 
-安装成功后，可用 `openclaw plugins list` 确认能看到 `memory-powermem`。若未写 `plugins.entries["memory-powermem"].config`，插件 **默认**：`mode: "cli"`、`envFile` 为 `~/.openclaw/powermem/powermem.env`、`pmemPath: "pmem"`，并开启 `autoCapture`、`autoRecall`、`inferOnAdd`。请确保 `pmem` 在 PATH 上（或配置 `pmemPath`），且上述 `.env` 有效。
+安装成功后，可用 `openclaw plugins list` 确认能看到 `memory-powermem`。若未写 `plugins.entries["memory-powermem"].config`，插件 **默认**：`mode: "cli"`、`pmemPath: "bundled"`（优先插件旁的 npm `powermem`，否则用 PATH 上的 `pmem`）、`useOpenClawModel: true`（SQLite 在 OpenClaw 状态目录 + 从 `agents.defaults.model` 注入 LLM），并开启 `autoCapture`、`autoRecall`、`inferOnAdd`。若不使用 OpenClaw 注入模型，再准备 `powermem` 的 `.env`（`envFile`）。
 
 ---
 
 ## 第三步：配置 OpenClaw（可选）
 
-若使用 **CLI 默认路径** 且 `pmem` 已在 PATH，可跳过。需要 HTTP、改 URL/API Key、或自定义 `envFile` / `pmemPath` 时再改配置。
+若使用 **CLI 默认**（`bundled` + OpenClaw 模型注入），可跳过。需要 HTTP、改 URL/API Key、使用 Python 版 `pmem`（`pmemPath: "auto"` 或绝对路径）、或通过 `envFile` 时再改配置。
 
 **CLI（默认）：**
 
@@ -206,7 +206,7 @@ openclaw plugins install -l /path/to/memory-powermem
         "config": {
           "mode": "cli",
           "envFile": "/home/you/.openclaw/powermem/powermem.env",
-          "pmemPath": "pmem",
+          "pmemPath": "bundled",
           "autoCapture": true,
           "autoRecall": true,
           "inferOnAdd": true
@@ -231,7 +231,7 @@ openclaw plugins install -l /path/to/memory-powermem
 
 说明：
 
-- **CLI（默认）：** 可不写 `mode` 且 `baseUrl` 为空时走 CLI；使用 `envFile` + `pmemPath`。
+- **CLI（默认）：** 可不写 `mode` 且 `baseUrl` 为空时走 CLI。默认 `pmemPath` 为 `bundled`（npm CLI）。需要时再配 `envFile` / `pmemPath`。
 - **HTTP：** `mode` 为 `http` 时必须配置 `baseUrl`；若只写 `baseUrl` 不写 `mode`，插件会按 HTTP 处理。**不要**在 `baseUrl` 上加 `/api/v1`。若服务开了 API Key，加 `"apiKey"`。
 - 改完配置后**重启 OpenClaw gateway**（或 Mac 菜单栏应用）。
 
@@ -288,12 +288,14 @@ openclaw ltm search "咖啡"
 | `baseUrl`     | 是（http） | `mode` 为 `http` 时必填，PowerMem API 根地址，如 `http://localhost:8000`，不要带 `/api/v1`。 |
 | `apiKey`      | 否   | PowerMem 开启 API Key 鉴权时填写（http 模式）。 |
 | `envFile`     | 否   | CLI：PowerMem `.env`；插件默认约定 `~/.openclaw/powermem/powermem.env`。 |
-| `pmemPath`    | 否   | CLI 模式：`pmem` 可执行路径，默认 `pmem`。 |
+| `pmemPath`    | 否   | CLI：`bundled`（默认）、`auto` 或 `pmem` 的路径/命令。 |
 | `userId`      | 否   | 用于多用户隔离，默认 `openclaw-user`。 |
 | `agentId`     | 否   | 用于多 Agent 隔离，默认 `openclaw-agent`。 |
 | `autoCapture` | 否   | 会话结束后是否自动把对话交给 PowerMem 抽取记忆，默认 `true`。 |
 | `autoRecall`  | 否   | 会话开始前是否自动注入相关记忆，默认 `true`。 |
 | `inferOnAdd`  | 否   | 写入时是否用 PowerMem 智能抽取，默认 `true`。 |
+
+**记忆划分与分享：** `userId` / `agentId` 如何配合、与「组」相关的 `scope` / `run_id`、以及本插件始终携带 `agent_id` 的含义，见 [docs/agent-memory-sharing.md](docs/agent-memory-sharing.md)。
 
 **自动抓取**：会话结束时，会把本轮用户/助手文本发给 PowerMem（`infer: true`），由 PowerMem 抽取并落库。每轮最多 3 条，每条约 6000 字符以内。
 
@@ -321,7 +323,7 @@ openclaw ltm search "咖啡"
 
 **1. `openclaw ltm health` 报错连不上**
 
-- **CLI：** `pmem` 在 PATH 或 `pmemPath` 正确；`envFile` 指向有效 `.env`。
+- **CLI：** 插件已安装 npm `powermem`（`bundled`），或 `pmemPath` 正确；未用 OpenClaw 注入时再保证 `envFile`。
 - **HTTP：** PowerMem 已启动（方式 A 终端或 Docker）；`baseUrl` 正确（本机常用 `http://localhost:8000`，注意与 `127.0.0.1` 一致性问题）。
 - 若 OpenClaw 和 PowerMem 不在同一台机器，把 `localhost` 改成 PowerMem 所在机器的 IP 或域名。
 

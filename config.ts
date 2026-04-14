@@ -36,9 +36,9 @@ export type PowerMemConfig = {
   envFile?: string;
   /**
    * CLI: how to run `pmem`.
-   * - `auto` (default): Node `powermem` package (`powermem-ts`) if installed, else `pmem` on PATH (Python).
-   * - `bundled`: only the npm `powermem` CLI (error if missing).
-   * - `pmem` or any other string: command name or absolute path to the binary.
+   * - `bundled` (default): prefer npm `powermem` next to this plugin; else `pmem` on PATH (e.g. Python).
+   * - `auto`: same resolution as `bundled`.
+   * - any other string: command name or absolute path to a `pmem` binary.
    */
   pmemPath?: string;
   /**
@@ -75,6 +75,9 @@ const ALLOWED_KEYS = [
   "autoRecall",
   "inferOnAdd",
 ] as const;
+
+/** CLI `pmemPath` when omitted; npm `powermem` bundled with this plugin. */
+export const DEFAULT_PMEM_PATH = "bundled";
 
 export const powerMemConfigSchema = {
   parse(value: unknown): PowerMemConfig {
@@ -116,7 +119,7 @@ export const powerMemConfigSchema = {
     const pmemPath =
       typeof pmemPathRaw === "string" && pmemPathRaw.trim()
         ? pmemPathRaw.trim()
-        : "auto";
+        : DEFAULT_PMEM_PATH;
 
     return {
       mode,
@@ -183,7 +186,7 @@ export const DEFAULT_PLUGIN_CONFIG: PowerMemConfig = {
   mode: "cli",
   baseUrl: "",
   envFile: undefined,
-  pmemPath: "auto",
+  pmemPath: DEFAULT_PMEM_PATH,
   useOpenClawModel: true,
   autoCapture: true,
   autoRecall: true,

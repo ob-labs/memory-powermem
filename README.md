@@ -185,13 +185,13 @@ openclaw plugins install -l /path/to/memory-powermem
 
 **Note:** Running `npm i memory-powermem` in a Node project only adds the package to that project’s `node_modules`; it does **not** register the plugin with OpenClaw. To use this as an OpenClaw plugin, you must run `openclaw plugins install memory-powermem` (or install from a path as above), then restart the gateway.
 
-After install, run `openclaw plugins list` and confirm `memory-powermem` is listed. With **no** `plugins.entries["memory-powermem"].config`, the plugin uses **defaults**: `mode: "cli"`, `envFile` under `~/.openclaw/powermem/powermem.env`, `pmemPath: "pmem"`, plus `autoCapture` / `autoRecall` / `inferOnAdd` enabled. Ensure `pmem` is on PATH (or set `pmemPath`) and the env file exists and is valid.
+After install, run `openclaw plugins list` and confirm `memory-powermem` is listed. With **no** `plugins.entries["memory-powermem"].config`, the plugin uses **defaults**: `mode: "cli"`, `pmemPath: "bundled"` (npm `powermem` from plugin dependencies), `useOpenClawModel: true` (SQLite under OpenClaw state + LLM from `agents.defaults.model`), plus `autoCapture` / `autoRecall` / `inferOnAdd` enabled. No separate `powermem.env` is required unless you opt out of OpenClaw model injection.
 
 ---
 
 ## Step 3: Configure OpenClaw (optional)
 
-If you use **CLI mode** with the default paths and `pmem` on PATH, you can skip this step. Customize for HTTP, a different URL/API key, or a non-default `envFile` / `pmemPath`.
+If you use **CLI mode** with defaults (`bundled` + OpenClaw model injection), you can skip this step. Customize for HTTP, a different URL/API key, Python `pmem` (`pmemPath: "auto"` or an absolute path), or a `powermem` `.env` via `envFile`.
 
 **CLI (default):**
 
@@ -205,7 +205,7 @@ If you use **CLI mode** with the default paths and `pmem` on PATH, you can skip 
         "config": {
           "mode": "cli",
           "envFile": "/home/you/.openclaw/powermem/powermem.env",
-          "pmemPath": "pmem",
+          "pmemPath": "bundled",
           "autoCapture": true,
           "autoRecall": true,
           "inferOnAdd": true
@@ -230,7 +230,7 @@ If you use **CLI mode** with the default paths and `pmem` on PATH, you can skip 
 
 Notes:
 
-- **CLI (default):** You may omit `mode` and use CLI when `baseUrl` is empty; use `envFile` + `pmemPath`.
+- **CLI (default):** You may omit `mode` and use CLI when `baseUrl` is empty. Default `pmemPath` is `bundled` (npm CLI). Use `envFile` and/or `pmemPath` when you need a custom setup.
 - **HTTP:** When `mode` is `http`, `baseUrl` is required; if you set `baseUrl` without `mode`, the plugin treats it as HTTP. Do **not** append `/api/v1` to `baseUrl`. If the server uses API key auth, add `"apiKey"`.
 - **Restart the OpenClaw gateway** (or Mac menubar app) after changing config.
 
@@ -287,7 +287,7 @@ After installing, uninstalling, or changing config, restart the OpenClaw gateway
 | `baseUrl`     | Yes (http) | PowerMem API base URL when `mode` is `http`, e.g. `http://localhost:8000`, no `/api/v1` suffix. |
 | `apiKey`      | No       | Set when PowerMem server has API key authentication enabled (http mode). |
 | `envFile`     | No       | CLI: path to PowerMem `.env` (default when using plugin defaults: `~/.openclaw/powermem/powermem.env`). |
-| `pmemPath`    | No       | CLI: path to `pmem` executable; default `pmem`. |
+| `pmemPath`    | No       | CLI: `bundled` (default), `auto`, or path/command for `pmem`. |
 | `userId`      | No       | User isolation (multi-user); default `openclaw-user`. |
 | `agentId`     | No       | Agent isolation (multi-agent); default `openclaw-agent`. |
 | `autoCapture` | No       | Auto-store from conversations after agent ends; default `true`. |
@@ -320,7 +320,7 @@ Exposed to OpenClaw agents:
 
 **1. `openclaw ltm health` fails or cannot connect**
 
-- **CLI:** `pmem` on PATH or correct `pmemPath`; valid `.env` at `envFile`.
+- **CLI:** npm `powermem` installed with the plugin (`bundled`), or correct `pmemPath`; optional `.env` at `envFile` if not using OpenClaw model injection.
 - **HTTP:** PowerMem is running (HTTP server in a terminal, or Docker); `baseUrl` is correct (e.g. `http://localhost:8000`; watch for `127.0.0.1` vs `localhost` mismatches).
 - Remote server: use the host IP or hostname instead of `localhost`.
 

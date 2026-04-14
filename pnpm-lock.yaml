@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@langchain/openai':
+        specifier: ^1.4.1
+        version: 1.4.4(@langchain/core@1.1.39(openai@6.34.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0))(ws@8.20.0)
       '@sinclair/typebox':
         specifier: ^0.34.0
         version: 0.34.48
@@ -15,8 +18,8 @@ importers:
         specifier: '>=2026.1.0'
         version: 2026.3.23(@cfworker/json-schema@4.1.1)(@napi-rs/canvas@0.1.97)
       powermem:
-        specifier: ^0.1.0
-        version: 0.1.0(@types/node@22.19.15)(openai@6.26.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)
+        specifier: ^0.1.1
+        version: 0.1.1(@langchain/openai@1.4.4(@langchain/core@1.1.39(openai@6.34.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0))(ws@8.20.0))(@types/node@22.19.15)(openai@6.34.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -516,6 +519,12 @@ packages:
   '@langchain/core@1.1.39':
     resolution: {integrity: sha512-DP9c7TREy6iA7HnywstmUAsNyJNYTFpRg2yBfQ+6H0l1HnvQzei9GsQ36GeOLxgRaD3vm9K8urCcawSC7yQpCw==}
     engines: {node: '>=20'}
+
+  '@langchain/openai@1.4.4':
+    resolution: {integrity: sha512-mRr/X5rvlwPj6cSXPxbL+CtOqYANO1/+CQ3Z+5t48kWnrlgPYOazmA+UAWvqQOuwJ6LaYn3SFrt43rR4lte/Ow==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@langchain/core': ^1.1.39
 
   '@line/bot-sdk@10.6.0':
     resolution: {integrity: sha512-4hSpglL/G/cW2JCcohaYz/BS0uOSJNV9IEYdMm0EiPEvDLayoI2hGq2D86uYPQFD2gvgkyhmzdShpWLG3P5r3w==}
@@ -2088,6 +2097,18 @@ packages:
       zod:
         optional: true
 
+  openai@6.34.0:
+    resolution: {integrity: sha512-yEr2jdGf4tVFYG6ohmr3pF6VJuveP0EA/sS8TBx+4Eq5NT10alu5zg2dmxMXMgqpihRDQlFGpRt2XwsGj+Fyxw==}
+    hasBin: true
+    peerDependencies:
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      ws:
+        optional: true
+      zod:
+        optional: true
+
   openclaw@2026.3.23:
     resolution: {integrity: sha512-CSenO9Q+WePEzhzr3vIgx70GLanQVLcwgtItxT7gy1XtE7uiAVLBTqOxn2nc6BGGX3R3u9RqOpUh/vyAPvameA==}
     engines: {node: '>=22.16.0'}
@@ -2250,8 +2271,8 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  powermem@0.1.0:
-    resolution: {integrity: sha512-NpFLM45HQO2OycqXSPHGN5hSGkV5IRu0YvR9fJg5ieEqWfNe29KL7KQul3mEVUNu9/xS+kZQYgnCy4H0IcYYZQ==}
+  powermem@0.1.1:
+    resolution: {integrity: sha512-Qvq+Dw2sxkSr4srafJiGdLMkYeQsf9cRm41dJk+B8NmqvTHnpCvhCkhvj+J0f8ZGHToB5Lme4RvMTDCkZFdrLg==}
     engines: {node: '>=18.0.0'}
     hasBin: true
     peerDependencies:
@@ -3476,7 +3497,7 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
-  '@langchain/core@1.1.39(openai@6.26.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)':
+  '@langchain/core@1.1.39(openai@6.34.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)':
     dependencies:
       '@cfworker/json-schema': 4.1.1
       '@standard-schema/spec': 1.1.0
@@ -3484,7 +3505,7 @@ snapshots:
       camelcase: 6.3.0
       decamelize: 1.2.0
       js-tiktoken: 1.0.21
-      langsmith: 0.5.18(openai@6.26.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)
+      langsmith: 0.5.18(openai@6.34.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)
       mustache: 4.2.0
       p-queue: 6.6.2
       uuid: 11.1.0
@@ -3494,6 +3515,15 @@ snapshots:
       - '@opentelemetry/exporter-trace-otlp-proto'
       - '@opentelemetry/sdk-trace-base'
       - openai
+      - ws
+
+  '@langchain/openai@1.4.4(@langchain/core@1.1.39(openai@6.34.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0))(ws@8.20.0)':
+    dependencies:
+      '@langchain/core': 1.1.39(openai@6.34.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)
+      js-tiktoken: 1.0.21
+      openai: 6.34.0(ws@8.20.0)(zod@4.3.6)
+      zod: 4.3.6
+    transitivePeerDependencies:
       - ws
 
   '@line/bot-sdk@10.6.0':
@@ -5000,12 +5030,12 @@ snapshots:
   koffi@2.15.2:
     optional: true
 
-  langsmith@0.5.18(openai@6.26.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0):
+  langsmith@0.5.18(openai@6.34.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0):
     dependencies:
       p-queue: 6.6.2
       uuid: 10.0.0
     optionalDependencies:
-      openai: 6.26.0(ws@8.20.0)(zod@4.3.6)
+      openai: 6.34.0(ws@8.20.0)(zod@4.3.6)
       ws: 8.20.0
 
   lie@3.3.0:
@@ -5170,6 +5200,11 @@ snapshots:
       wrappy: 1.0.2
 
   openai@6.26.0(ws@8.20.0)(zod@4.3.6):
+    optionalDependencies:
+      ws: 8.20.0
+      zod: 4.3.6
+
+  openai@6.34.0(ws@8.20.0)(zod@4.3.6):
     optionalDependencies:
       ws: 8.20.0
       zod: 4.3.6
@@ -5376,9 +5411,9 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  powermem@0.1.0(@types/node@22.19.15)(openai@6.26.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0):
+  powermem@0.1.1(@langchain/openai@1.4.4(@langchain/core@1.1.39(openai@6.34.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0))(ws@8.20.0))(@types/node@22.19.15)(openai@6.34.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0):
     dependencies:
-      '@langchain/core': 1.1.39(openai@6.26.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)
+      '@langchain/core': 1.1.39(openai@6.34.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0)
       better-sqlite3: 12.9.0
       commander: 14.0.3
       dotenv: 16.6.1
@@ -5386,6 +5421,8 @@ snapshots:
       pg: 8.20.0
       seekdb: 1.2.0(@types/node@22.19.15)
       zod: 4.3.6
+    optionalDependencies:
+      '@langchain/openai': 1.4.4(@langchain/core@1.1.39(openai@6.34.0(ws@8.20.0)(zod@4.3.6))(ws@8.20.0))(ws@8.20.0)
     transitivePeerDependencies:
       - '@opentelemetry/api'
       - '@opentelemetry/exporter-trace-otlp-proto'

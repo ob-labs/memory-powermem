@@ -100,13 +100,18 @@ export class PowerMemClient {
   }
 
   /** GET /api/v1/system/health */
-  async health(): Promise<{ status: string }> {
-    const data = await this.request<{ data?: { status?: string } }>(
-      "GET",
-      "/api/v1/system/health",
-      undefined,
-    );
-    return { status: data?.data?.status ?? "unknown" };
+  async health(): Promise<{ status: string; error?: string }> {
+    try {
+      const data = await this.request<{ data?: { status?: string } }>(
+        "GET",
+        "/api/v1/system/health",
+        undefined,
+      );
+      return { status: data?.data?.status ?? "unknown" };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { status: "unhealthy", error: msg };
+    }
   }
 
   /** POST /api/v1/memories */

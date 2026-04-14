@@ -18,4 +18,8 @@ describe("resolvePmemExecutable", () => {
   it("pmem passes through", () => {
     expect(resolvePmemExecutable("pmem")).toBe("pmem");
   });
+
+  it("bundled uses the same resolution as auto", () => {
+    expect(resolvePmemExecutable("bundled")).toBe(resolvePmemExecutable("auto"));
+  });
 });

@@ -21,8 +21,9 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@langchain/openai": "^1.4.1",
     "@sinclair/typebox": "^0.34.0",
-    "powermem": "^0.1.0"
+    "powermem": "^0.1.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -33,11 +34,20 @@
     "openclaw": ">=2026.1.0"
   },
   "peerDependenciesMeta": {
-    "openclaw": { "optional": true }
+    "openclaw": {
+      "optional": true
+    }
   },
   "openclaw": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
   "repository": "",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
+  }
 }

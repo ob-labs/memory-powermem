@@ -27,7 +27,8 @@ SELECTED_MODE="cli"
 BASE_URL="http://localhost:8000"
 API_KEY=""
 ENV_FILE=""
-PMEM_PATH="pmem"
+# Default matches plugin: npm powermem-ts (package "powermem"); use "pmem" only for Python on PATH.
+PMEM_PATH="bundled"
 POWMEM_DATA_DIR=""
 DEFAULT_POWMEM_ENV=""
 
@@ -52,7 +53,7 @@ for arg in "$@"; do
     echo "   or: bash install.sh [-y] [--workdir <path>]"
     echo ""
     echo "Options:"
-    echo "  -y, --yes        Non-interactive (defaults: cli, env ~/.openclaw/powermem/powermem.env)"
+    echo "  -y, --yes        Non-interactive (defaults: cli, bundled npm pmem, optional env template)"
     echo "  --workdir <path> OpenClaw config dir (default: ~/.openclaw)"
     echo "  -h, --help       Show this help"
     echo ""
@@ -168,6 +169,7 @@ EOF
 select_mode_and_config() {
   if [[ "$INSTALL_YES" == "1" ]]; then
     SELECTED_MODE="cli"
+    PMEM_PATH="bundled"
     ENV_FILE="${DEFAULT_POWMEM_ENV}"
     seed_powermem_env_if_missing "${ENV_FILE}"
     return 0
@@ -180,8 +182,8 @@ select_mode_and_config() {
     read -r -p "Path to PowerMem .env [${DEFAULT_POWMEM_ENV}]: " _ef < /dev/tty || true
     ENV_FILE="${_ef:-${DEFAULT_POWMEM_ENV}}"
     seed_powermem_env_if_missing "${ENV_FILE}"
-    read -r -p "pmem binary path [pmem]: " _pmem < /dev/tty || true
-    PMEM_PATH="${_pmem:-pmem}"
+    read -r -p "pmem path [bundled] (bundled=npm powermem-ts; or absolute path to Python venv pmem): " _pmem < /dev/tty || true
+    PMEM_PATH="${_pmem:-bundled}"
   else
     SELECTED_MODE="http"
     ENV_FILE=""
@@ -212,7 +214,7 @@ check_openclaw() {
 deploy_from_repo() {
   info "Deploying plugin from current directory..."
   mkdir -p "${PLUGIN_DEST}"
-  for f in index.ts config.ts client.ts client-cli.ts openclaw-powermem-env.ts openclaw.plugin.json package.json tsconfig.json .gitignore; do
+  for f in index.ts config.ts client.ts client-cli.ts resolve-powermem-cli.ts openclaw-powermem-env.ts openclaw.plugin.json package.json tsconfig.json .gitignore; do
     if [[ -f "$f" ]]; then
       cp "$f" "${PLUGIN_DEST}/"
     fi
@@ -237,6 +239,7 @@ deploy_from_github() {
     "config.ts"
     "client.ts"
     "client-cli.ts"
+    "resolve-powermem-cli.ts"
     "openclaw-powermem-env.ts"
     "openclaw.plugin.json"
     "package.json"
@@ -328,10 +331,12 @@ main() {
     echo "  2. openclaw gateway"
     echo "  3. openclaw ltm health"
   else
-    echo "  1. pip install powermem (venv recommended); put pmem on PATH when starting the gateway"
-    echo "  2. Edit LLM_* and EMBEDDING_* in: ${ENV_FILE:-$DEFAULT_POWMEM_ENV}"
-    echo "  3. openclaw gateway"
-    echo "  4. openclaw ltm health"
+    echo "  1. openclaw gateway  (default CLI uses npm powermem-ts in the plugin dir; no pip required)"
+    echo "  2. openclaw ltm health"
+    echo "  3. Optional: with useOpenClawModel (default), you usually do NOT need to edit the seeded file:"
+    echo "       ${ENV_FILE:-$DEFAULT_POWMEM_ENV}"
+    echo "     Edit it only if you disable OpenClaw model injection or want extra PowerMem tuning."
+    echo "  4. Optional: use Python pmem instead → set plugins.entries.memory-powermem.config.pmemPath to your venv pmem."
   fi
   echo ""
 }
