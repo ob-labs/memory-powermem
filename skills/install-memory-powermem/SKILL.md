@@ -81,4 +81,4 @@ triggers:
 
 ## 说明（一句话）
 
-记忆数据默认存在本机 OpenClaw 数据目录下的 SQLite 里；默认 CLI 为 **powermem-ts（npm）**；**不需要**你再单独维护一份 PowerMem 的 `.env`，除非你熟悉进阶配置。
+记忆数据默认存在本机 OpenClaw 数据目录下的 SQLite 里；默认 CLI 为 **powermem-ts（npm）**；**不需要**你再单独维护一份 PowerMem 的 `.env`，除非你熟悉进阶配置。`userId/agentId` 未配置会自动生成并持久化。

@@ -27,11 +27,14 @@ function resolveEnvVars(value: string): string {
 }
 
 export type PowerMemMode = "http" | "cli";
+export type PowerMemHttpApiVersion = "v1" | "v2";
 
 export type PowerMemConfig = {
   mode: PowerMemMode;
   baseUrl: string;
   apiKey?: string;
+  httpApiVersion?: PowerMemHttpApiVersion;
+  requestConfig?: Record<string, unknown>;
   /** CLI mode: path to .env (optional; pmem discovers if omitted). */
   envFile?: string;
   /**
@@ -54,7 +57,19 @@ export type PowerMemConfig = {
   recallScoreThreshold?: number;
   autoCapture: boolean;
   autoRecall: boolean;
+  autoExperience: boolean;
+  experienceRecall: boolean;
   inferOnAdd: boolean;
+  dualWrite?: boolean;
+  localDbPath?: string;
+  localUserId?: string;
+  localAgentId?: string;
+  syncOnResume?: boolean;
+  syncBatchSize?: number;
+  syncMinIntervalMs?: number;
+  syncBaseDelayMs?: number;
+  syncMaxDelayMs?: number;
+  syncMaxRetries?: number;
 };
 
 const DEFAULT_RECALL_LIMIT = 5;
@@ -64,6 +79,8 @@ const ALLOWED_KEYS = [
   "mode",
   "baseUrl",
   "apiKey",
+  "httpApiVersion",
+  "requestConfig",
   "envFile",
   "pmemPath",
   "useOpenClawModel",
@@ -73,7 +90,19 @@ const ALLOWED_KEYS = [
   "recallScoreThreshold",
   "autoCapture",
   "autoRecall",
+  "autoExperience",
+  "experienceRecall",
   "inferOnAdd",
+  "dualWrite",
+  "localDbPath",
+  "localUserId",
+  "localAgentId",
+  "syncOnResume",
+  "syncBatchSize",
+  "syncMinIntervalMs",
+  "syncBaseDelayMs",
+  "syncMaxDelayMs",
+  "syncMaxRetries",
 ] as const;
 
 /** CLI `pmemPath` when omitted; npm `powermem` bundled with this plugin. */
@@ -121,10 +150,32 @@ export const powerMemConfigSchema = {
         ? pmemPathRaw.trim()
         : DEFAULT_PMEM_PATH;
 
+    const httpApiVersion =
+      cfg.httpApiVersion === "v2" ? "v2" : "v1";
+
+    const requestConfig =
+      cfg.requestConfig && typeof cfg.requestConfig === "object" && !Array.isArray(cfg.requestConfig)
+        ? cfg.requestConfig as Record<string, unknown>
+        : undefined;
+
+    const localDbPathRaw = cfg.localDbPath;
+    const localDbPath =
+      typeof localDbPathRaw === "string" && localDbPathRaw.trim()
+        ? resolveEnvVars(localDbPathRaw.trim())
+        : undefined;
+
+    const syncBatchSize = toPositiveInt(cfg.syncBatchSize, 50, 1, 500);
+    const syncMinIntervalMs = toPositiveInt(cfg.syncMinIntervalMs, 5000, 1000, 600000);
+    const syncBaseDelayMs = toPositiveInt(cfg.syncBaseDelayMs, 5000, 1000, 600000);
+    const syncMaxDelayMs = toPositiveInt(cfg.syncMaxDelayMs, 60000, 1000, 3600000);
+    const syncMaxRetries = toPositiveInt(cfg.syncMaxRetries, 10, 0, 100);
+
     return {
       mode,
       baseUrl,
       apiKey,
+      httpApiVersion,
+      requestConfig,
       envFile,
       pmemPath,
       useOpenClawModel: cfg.useOpenClawModel !== false,
@@ -140,7 +191,25 @@ export const powerMemConfigSchema = {
       recallScoreThreshold: toRecallScoreThreshold(cfg.recallScoreThreshold),
       autoCapture: cfg.autoCapture !== false,
       autoRecall: cfg.autoRecall !== false,
+      autoExperience: cfg.autoExperience !== false,
+      experienceRecall: cfg.experienceRecall !== false,
       inferOnAdd: cfg.inferOnAdd !== false,
+      dualWrite: cfg.dualWrite === true,
+      localDbPath,
+      localUserId:
+        typeof cfg.localUserId === "string" && cfg.localUserId.trim()
+          ? cfg.localUserId.trim()
+          : undefined,
+      localAgentId:
+        typeof cfg.localAgentId === "string" && cfg.localAgentId.trim()
+          ? cfg.localAgentId.trim()
+          : undefined,
+      syncOnResume: cfg.syncOnResume !== false,
+      syncBatchSize,
+      syncMinIntervalMs,
+      syncBaseDelayMs,
+      syncMaxDelayMs,
+      syncMaxRetries,
     };
   },
 };
@@ -167,6 +236,25 @@ function toRecallScoreThreshold(v: unknown): number {
   return DEFAULT_RECALL_SCORE_THRESHOLD;
 }
 
+function toPositiveInt(
+  v: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const n = Math.floor(v);
+    return Math.min(max, Math.max(min, n));
+  }
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) {
+      return Math.min(max, Math.max(min, Math.floor(n)));
+    }
+  }
+  return fallback;
+}
+
 /** Default user/agent IDs when not configured (single-tenant style). */
 export const DEFAULT_USER_ID = "openclaw-user";
 export const DEFAULT_AGENT_ID = "openclaw-agent";
@@ -185,12 +273,26 @@ export function defaultConsumerPowermemEnvPath(): string {
 export const DEFAULT_PLUGIN_CONFIG: PowerMemConfig = {
   mode: "cli",
   baseUrl: "",
+  httpApiVersion: "v1",
+  requestConfig: undefined,
   envFile: undefined,
   pmemPath: DEFAULT_PMEM_PATH,
   useOpenClawModel: true,
   autoCapture: true,
   autoRecall: true,
+  autoExperience: true,
+  experienceRecall: true,
   inferOnAdd: true,
+  dualWrite: false,
+  localDbPath: undefined,
+  localUserId: undefined,
+  localAgentId: undefined,
+  syncOnResume: true,
+  syncBatchSize: 50,
+  syncMinIntervalMs: 5000,
+  syncBaseDelayMs: 5000,
+  syncMaxDelayMs: 60000,
+  syncMaxRetries: 10,
 };
 
 export function resolveUserId(cfg: PowerMemConfig): string {

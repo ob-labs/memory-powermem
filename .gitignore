@@ -1,6 +1,7 @@
 node_modules/
 .pnpm-store/
 dist/
+lib/
 *.log
 .env
 .DS_Store

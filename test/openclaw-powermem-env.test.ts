@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildDefaultSqlitePowermemEnv,
   buildPowermemCliProcessEnv,
-} from "../openclaw-powermem-env.js";
+} from "../src/openclaw-powermem-env.js";
 
 describe("buildDefaultSqlitePowermemEnv", () => {
   it("sets sqlite under state dir", () => {

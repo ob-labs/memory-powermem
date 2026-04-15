@@ -8,7 +8,7 @@
 
 # OpenClaw Memory (PowerMem) 插件
 
-本插件让 [OpenClaw](https://github.com/openclaw/openclaw) 通过 [PowerMem](https://github.com/oceanbase/powermem) 使用长期记忆：智能抽取、艾宾浩斯遗忘曲线、多 Agent 隔离。
+本插件让 [OpenClaw](https://github.com/openclaw/openclaw) 通过 [PowerMem](https://github.com/oceanbase/powermem) 使用长期记忆：智能抽取、艾宾浩斯遗忘曲线、多 Agent 隔离。支持 HTTP v2（按请求配置 + 代理共享）、LLM 经验提炼与本地 SQLite 双写。
 
 **默认：CLI 模式** — 插件在本机执行 `pmem`，无需 `powermem-server`。**HTTP 模式** 适合已有共享 PowerMem API 的场景（团队 / 企业）。
 
@@ -223,8 +223,12 @@ openclaw plugins install -l /path/to/memory-powermem
 "config": {
   "mode": "http",
   "baseUrl": "http://localhost:8000",
+  "httpApiVersion": "v2",
+  "requestConfig": { "memory_db": { "host": "db-host", "port": 2881 } },
   "autoCapture": true,
   "autoRecall": true,
+  "autoExperience": true,
+  "experienceRecall": true,
   "inferOnAdd": true
 }
 ```
@@ -284,18 +288,32 @@ openclaw ltm search "咖啡"
 
 | 选项          | 必填 | 说明 |
 |---------------|------|------|
-| `mode`        | 否   | 后端：`"cli"`（默认）或 `"http"`。不写 `mode` 但填了 `baseUrl` 时按 HTTP 处理。 |
-| `baseUrl`     | 是（http） | `mode` 为 `http` 时必填，PowerMem API 根地址，如 `http://localhost:8000`，不要带 `/api/v1`。 |
-| `apiKey`      | 否   | PowerMem 开启 API Key 鉴权时填写（http 模式）。 |
-| `envFile`     | 否   | CLI：PowerMem `.env`；插件默认约定 `~/.openclaw/powermem/powermem.env`。 |
-| `pmemPath`    | 否   | CLI：`bundled`（默认）、`auto` 或 `pmem` 的路径/命令。 |
-| `userId`      | 否   | 用于多用户隔离，默认 `openclaw-user`。 |
-| `agentId`     | 否   | 用于多 Agent 隔离，默认 `openclaw-agent`。 |
-| `autoCapture` | 否   | 会话结束后是否自动把对话交给 PowerMem 抽取记忆，默认 `true`。 |
-| `autoRecall`  | 否   | 会话开始前是否自动注入相关记忆，默认 `true`。 |
-| `inferOnAdd`  | 否   | 写入时是否用 PowerMem 智能抽取，默认 `true`。 |
+| `mode` | 否 | 后端：`"cli"`（默认）或 `"http"`。不写 `mode` 但填了 `baseUrl` 时按 HTTP 处理。 |
+| `baseUrl` | 是（http） | `mode` 为 `http` 时必填，PowerMem API 根地址，如 `http://localhost:8000`，不要带 `/api/v1`。 |
+| `apiKey` | 否 | PowerMem 开启 API Key 鉴权时填写（http 模式）。 |
+| `httpApiVersion` | 否 | HTTP 版本：`"v1"`（默认）或 `"v2"`。 |
+| `requestConfig` | 否 | HTTP v2 专用：按请求透传 `config`（如 `memory_db`）。 |
+| `envFile` | 否 | CLI：PowerMem `.env`；插件默认约定 `~/.openclaw/powermem/powermem.env`。 |
+| `pmemPath` | 否 | CLI：`bundled`（默认）、`auto` 或 `pmem` 的路径/命令。 |
+| `userId` | 否 | 用于多用户隔离。未填或为 `"auto"` 时自动生成并保存到 `<stateDir>/powermem/identity.json`。 |
+| `agentId` | 否 | 用于多 Agent 隔离。未填或为 `"auto"` 时自动生成并保存到 `<stateDir>/powermem/identity.json`。 |
+| `autoCapture` | 否 | 会话结束后是否自动把对话交给 PowerMem 抽取记忆，默认 `true`。 |
+| `autoRecall` | 否 | 会话开始前是否自动注入相关记忆，默认 `true`。 |
+| `autoExperience` | 否 | LLM 自动提炼经验，默认 `true`。 |
+| `experienceRecall` | 否 | 召回结果是否包含经验，默认 `true`。 |
+| `inferOnAdd` | 否 | 写入时是否用 PowerMem 智能抽取，默认 `true`。 |
+| `dualWrite` | 否 | 仅 HTTP：远端 + 本地 SQLite 双写，远端失败自动排队补传。 |
+| `localDbPath` | 否 | 本地 SQLite 路径（`dualWrite`）。 |
+| `localUserId` | 否 | 本地命名空间（`dualWrite`，默认 `userId`）。 |
+| `localAgentId` | 否 | 本地命名空间（`dualWrite`，默认 `agentId`）。 |
+| `syncOnResume` | 否 | 是否启动时补传，默认 `true`。 |
+| `syncBatchSize` | 否 | 每批补传数量，默认 `50`。 |
+| `syncMinIntervalMs` | 否 | 补传最小间隔，默认 `5000`。 |
+| `syncBaseDelayMs` | 否 | 重试基础延迟，默认 `5000`。 |
+| `syncMaxDelayMs` | 否 | 重试最大延迟，默认 `60000`。 |
+| `syncMaxRetries` | 否 | 单条最大重试次数，默认 `10`。 |
 
-**记忆划分与分享：** `userId` / `agentId` 如何配合、与「组」相关的 `scope` / `run_id`、以及本插件始终携带 `agent_id` 的含义，见 [docs/agent-memory-sharing.md](docs/agent-memory-sharing.md)。
+**记忆划分与分享：** 建议用 `userId` / `agentId` 做逻辑隔离；HTTP v2 可用 `agent_memory_share` 进行显式共享。
 
 **自动抓取**：会话结束时，会把本轮用户/助手文本发给 PowerMem（`infer: true`），由 PowerMem 抽取并落库。每轮最多 3 条，每条约 6000 字符以内。
 
@@ -308,6 +326,12 @@ openclaw ltm search "咖啡"
 - **memory_recall** — 按查询搜索长期记忆
 - **memory_store** — 写入一条记忆（可选是否智能抽取）
 - **memory_forget** — 按记忆 ID 或按搜索条件删除
+- **experience_store** — 写入经验
+- **experience_recall** — 查询经验
+- **agent_memory_add** — 给其它 Agent 增加记忆（HTTP v2）
+- **agent_memory_list** — 列出 Agent 记忆（HTTP v2）
+- **agent_memory_share** — 共享 Agent 记忆（HTTP v2）
+- **agent_memory_shared** — 列出共享记忆（HTTP v2）
 
 ---
 

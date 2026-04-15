@@ -26,6 +26,7 @@ This skill folder includes supplementary docs:
 
 - **Auto-Capture**: After a conversation, the plugin sends valuable user/assistant text to PowerMem (optional infer / intelligent extraction).
 - **Auto-Recall**: Before each turn, it searches memories and can inject a `<relevant-memories>` block into context.
+- **Auto-Experience**: Optionally distills procedural experiences and stores them as memories for later recall.
 
 ## When User Asks to Install
 
@@ -53,7 +54,7 @@ The curl **`install.sh`** deploys the plugin and OpenClaw entries; with **`-y`**
 
 5. **HTTP path (enterprise / shared server)**  
    - Run **`powermem-server`** from the same **powermem-ts** stack (npm) or from a Python/Docker deployment; `.env` in server working directory with DB + LLM + embedding; e.g. `powermem-server --host 0.0.0.0 --port 8000`.  
-   - Check: `curl -s http://localhost:8000/api/v1/system/health`.
+   - Check: `curl -s http://localhost:8000/api/v1/system/health` (or `/api/v2/system/health` for v2).
 
 6. **Configure OpenClaw**  
 
@@ -68,6 +69,8 @@ The curl **`install.sh`** deploys the plugin and OpenClaw entries; with **`-y`**
    openclaw config set plugins.entries.memory-powermem.config.useOpenClawModel true --json
    openclaw config set plugins.entries.memory-powermem.config.autoCapture true --json
    openclaw config set plugins.entries.memory-powermem.config.autoRecall true --json
+   openclaw config set plugins.entries.memory-powermem.config.autoExperience true --json
+   openclaw config set plugins.entries.memory-powermem.config.experienceRecall true --json
    openclaw config set plugins.entries.memory-powermem.config.inferOnAdd true --json
    ```
 
@@ -86,7 +89,11 @@ The curl **`install.sh`** deploys the plugin and OpenClaw entries; with **`-y`**
    openclaw config set plugins.entries.memory-powermem.config.baseUrl http://localhost:8000
    ```
 
-   Optional: `apiKey` if the server uses auth.
+   Optional: `apiKey` if the server uses auth. For v2, set:
+   ```bash
+   openclaw config set plugins.entries.memory-powermem.config.httpApiVersion v2
+   openclaw config set plugins.entries.memory-powermem.config.requestConfig '{"memory_db":{"host":"db-host","port":2881}}' --json
+   ```
 
 7. **Verify**  
    Restart **gateway**, then in another terminal:
@@ -188,6 +195,12 @@ Plugin data and default SQLite follow **that** instance’s `stateDir`.
 | **memory_recall** | Search long-term memories. Params: `query`, optional `limit`, `scoreThreshold`. |
 | **memory_store** | Save text; optional infer. Params: `text`, optional `importance`. |
 | **memory_forget** | Delete by `memoryId` or by `query` search. |
+| **experience_store** | Store a procedural experience. |
+| **experience_recall** | Recall experiences. |
+| **agent_memory_add** | Add memory to another agent (HTTP v2 only). |
+| **agent_memory_list** | List an agent’s memories (HTTP v2 only). |
+| **agent_memory_share** | Share memories across agents (HTTP v2 only). |
+| **agent_memory_shared** | List memories shared with an agent (HTTP v2 only). |
 
 ## Configuration (summary)
 
@@ -196,12 +209,19 @@ Plugin data and default SQLite follow **that** instance’s `stateDir`.
 | `mode` | `cli` | `cli` or `http`. |
 | `baseUrl` | — | Required for HTTP; if `mode` omitted and `baseUrl` set → HTTP. |
 | `apiKey` | — | HTTP server auth. |
+| `httpApiVersion` | `v1` | HTTP API version: `v1` or `v2`. |
+| `requestConfig` | — | HTTP v2: per-request config (e.g. `memory_db`). |
 | `envFile` | — | Optional CLI `.env` (used only if file exists). |
 | `pmemPath` | `bundled` | CLI: **`bundled`** = npm **powermem-ts** next to the plugin; **`auto`** / empty resolves bundled then falls back to **`pmem` on PATH** (e.g. Python); or an absolute path to a `pmem` executable. |
 | `useOpenClawModel` | `true` | Inject LLM/embedding from OpenClaw + default SQLite under state dir. |
 | `recallLimit` | `5` | Max memories per recall. |
 | `recallScoreThreshold` | `0` | Min score 0–1. |
-| `autoCapture` / `autoRecall` / `inferOnAdd` | `true` | Auto memory pipeline and infer on add. |
+| `autoCapture` / `autoRecall` / `autoExperience` / `experienceRecall` / `inferOnAdd` | `true` | Auto memory + experience pipeline and infer on add. |
+| `userId` / `agentId` | auto | Omit or set to `auto` to generate stable IDs saved under `<stateDir>/powermem/identity.json`. |
+| `dualWrite` | `false` | HTTP only: remote + local SQLite dual-write. |
+| `localDbPath` | — | Local SQLite path for dual-write. |
+| `localUserId` / `localAgentId` | — | Local namespace for dual-write (defaults to `userId`/`agentId`). |
+| `syncOnResume` / `syncBatchSize` / `syncMinIntervalMs` / `syncBaseDelayMs` / `syncMaxDelayMs` / `syncMaxRetries` | see defaults | Retry controls for pending sync. |
 
 ## Daily Operations
 

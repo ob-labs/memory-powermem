@@ -10,7 +10,7 @@ Quick reference for skill **`install-memory-powermem-full`**. See **SKILL.md** i
 - **CLI (default)** — No `powermem.env` required for the default setup: the plugin injects **SQLite** (under the OpenClaw **state directory**) and **LLM + embedding** from OpenClaw (`agents.defaults.model` + provider keys), as long as `useOpenClawModel` is `true` (default).
 - **Optional: Python `pmem`** — **Python 3.10+**, `pip install powermem` ([oceanbase/powermem](https://github.com/oceanbase/powermem)), then set **`pmemPath`** to the venv **`pmem`** absolute path (gateway often does not inherit venv `PATH`).
 - **Optional `.env`** — Set `envFile` to a PowerMem `.env` if you want file-based overrides; if the file exists, it is loaded first, then OpenClaw-derived variables **override** the same keys (when `useOpenClawModel` is true).
-- **HTTP (shared server)** — Run **`powermem-server`** (npm or Python/Docker); plugin `mode: http` + `baseUrl`. Verify with `curl` on `/api/v1/system/health`.
+- **HTTP (shared server)** — Run **`powermem-server`** (npm or Python/Docker); plugin `mode: http` + `baseUrl`. Use `httpApiVersion: v2` + `requestConfig` for per-request config. Verify with `curl` on `/api/v1/system/health` or v2 `/api/v2/system/health`.
 
 ---
 
@@ -43,6 +43,8 @@ Quick reference for skill **`install-memory-powermem-full`**. See **SKILL.md** i
 | `mode` | `cli` | `cli` (local `pmem`) or `http` (`powermem-server`). |
 | `baseUrl` | — | Required when `mode` is `http` (or omit `mode` and set non-empty `baseUrl` → HTTP). |
 | `apiKey` | — | HTTP: optional PowerMem server API key. |
+| `httpApiVersion` | `v1` | HTTP API version: `v1` or `v2`. |
+| `requestConfig` | — | HTTP v2 only: forwarded as `config` (e.g. `memory_db`). |
 | `envFile` | — | CLI: optional path to PowerMem `.env` (only used if the file exists). |
 | `pmemPath` | `bundled` | CLI: **`bundled`** = npm **powermem-ts** next to the plugin; **`auto`** / empty = resolve bundled then **`pmem` on PATH**; or absolute path to a `pmem` executable (e.g. Python venv). |
 | `useOpenClawModel` | `true` | Inject LLM/embedding from OpenClaw; default SQLite under state dir. Set `false` to disable injection (you must then provide a full `.env` or env vars). |
@@ -50,7 +52,21 @@ Quick reference for skill **`install-memory-powermem-full`**. See **SKILL.md** i
 | `recallScoreThreshold` | `0` | Min score (0–1) to keep a hit. |
 | `autoCapture` | `true` | Auto-store from conversations. |
 | `autoRecall` | `true` | Auto-inject relevant memories before reply. |
+| `autoExperience` | `true` | Auto-extract experiences via LLM. |
+| `experienceRecall` | `true` | Include experiences in recall. |
 | `inferOnAdd` | `true` | PowerMem intelligent extraction on add. |
+| `userId` | auto | Omit or set to `auto` to generate a stable ID saved under `<stateDir>/powermem/identity.json`. |
+| `agentId` | auto | Omit or set to `auto` to generate a stable ID saved under `<stateDir>/powermem/identity.json`. |
+| `dualWrite` | `false` | HTTP only: remote + local SQLite dual-write. |
+| `localDbPath` | — | Local SQLite path for dual-write. |
+| `localUserId` | — | Local namespace for dual-write (defaults to `userId`). |
+| `localAgentId` | — | Local namespace for dual-write (defaults to `agentId`). |
+| `syncOnResume` | `true` | Sync pending writes on startup. |
+| `syncBatchSize` | `50` | Batch size for sync. |
+| `syncMinIntervalMs` | `5000` | Minimum sync interval. |
+| `syncBaseDelayMs` | `5000` | Base retry delay. |
+| `syncMaxDelayMs` | `60000` | Max retry delay. |
+| `syncMaxRetries` | `10` | Max retries per item. |
 
 ---
 

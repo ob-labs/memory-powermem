@@ -2,7 +2,7 @@
  * CLI stdout JSON shapes: Python pmem vs powermem-ts.
  */
 import { describe, it, expect } from "vitest";
-import { normalizeAddOutput, normalizeSearchOutput } from "../client-cli.js";
+import { normalizeAddOutput, normalizeSearchOutput } from "../src/client-cli.js";
 
 describe("normalizeAddOutput", () => {
   it("parses powermem-ts AddResult wrapper with memories + memoryId", () => {

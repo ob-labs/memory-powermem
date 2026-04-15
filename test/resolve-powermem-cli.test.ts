@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   resolvePmemExecutable,
   resolveBundledPowermemCliPath,
-} from "../resolve-powermem-cli.js";
+} from "../src/resolve-powermem-cli.js";
 
 describe("resolvePmemExecutable", () => {
   it("auto prefers bundled path when powermem is installed", () => {

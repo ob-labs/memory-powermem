@@ -8,7 +8,7 @@
 
 # OpenClaw Memory (PowerMem) Plugin
 
-This plugin lets [OpenClaw](https://github.com/openclaw/openclaw) use long-term memory via [PowerMem](https://github.com/oceanbase/powermem): intelligent extraction, Ebbinghaus forgetting curve, multi-agent isolation.
+This plugin lets [OpenClaw](https://github.com/openclaw/openclaw) use long-term memory via [PowerMem](https://github.com/oceanbase/powermem): intelligent extraction, Ebbinghaus forgetting curve, multi-agent isolation. Supports HTTP v2 (per-request config + agent memory sharing), LLM-based experience extraction, and optional dual-write to local SQLite.
 
 **Default:** **CLI mode** — the plugin runs `pmem` locally (no `powermem-server`). Use **HTTP mode** when you already run a shared PowerMem API (teams / enterprise).
 
@@ -222,8 +222,12 @@ If you use **CLI mode** with defaults (`bundled` + OpenClaw model injection), yo
 "config": {
   "mode": "http",
   "baseUrl": "http://localhost:8000",
+  "httpApiVersion": "v2",
+  "requestConfig": { "memory_db": { "host": "db-host", "port": 2881 } },
   "autoCapture": true,
   "autoRecall": true,
+  "autoExperience": true,
+  "experienceRecall": true,
   "inferOnAdd": true
 }
 ```
@@ -283,16 +287,30 @@ After installing, uninstalling, or changing config, restart the OpenClaw gateway
 
 | Option        | Required | Description |
 |---------------|----------|-------------|
-| `mode`        | No       | Backend: `"cli"` (default) or `"http"`. If omitted, non-empty `baseUrl` implies `http`. |
-| `baseUrl`     | Yes (http) | PowerMem API base URL when `mode` is `http`, e.g. `http://localhost:8000`, no `/api/v1` suffix. |
-| `apiKey`      | No       | Set when PowerMem server has API key authentication enabled (http mode). |
-| `envFile`     | No       | CLI: path to PowerMem `.env` (default when using plugin defaults: `~/.openclaw/powermem/powermem.env`). |
-| `pmemPath`    | No       | CLI: `bundled` (default), `auto`, or path/command for `pmem`. |
-| `userId`      | No       | User isolation (multi-user); default `openclaw-user`. |
-| `agentId`     | No       | Agent isolation (multi-agent); default `openclaw-agent`. |
-| `autoCapture` | No       | Auto-store from conversations after agent ends; default `true`. |
-| `autoRecall`  | No       | Auto-inject relevant memories before agent starts; default `true`. |
-| `inferOnAdd`  | No       | Use PowerMem intelligent extraction when adding; default `true`. |
+| `mode` | No | Backend: `"cli"` (default) or `"http"`. If omitted, non-empty `baseUrl` implies `http`. |
+| `baseUrl` | Yes (http) | PowerMem API base URL when `mode` is `http`, e.g. `http://localhost:8000`, no `/api/v1` suffix. |
+| `apiKey` | No | Set when PowerMem server has API key authentication enabled (http mode). |
+| `httpApiVersion` | No | HTTP API version: `"v1"` (default) or `"v2"`. |
+| `requestConfig` | No | HTTP v2 only: forwarded as `config` in each request (e.g. `memory_db` settings). |
+| `envFile` | No | CLI: path to PowerMem `.env` (default when using plugin defaults: `~/.openclaw/powermem/powermem.env`). |
+| `pmemPath` | No | CLI: `bundled` (default), `auto`, or path/command for `pmem`. |
+| `userId` | No | User isolation (multi-user). If omitted or set to `"auto"`, a stable ID is generated and stored in `<stateDir>/powermem/identity.json`. |
+| `agentId` | No | Agent isolation (multi-agent). If omitted or set to `"auto"`, a stable ID is generated and stored in `<stateDir>/powermem/identity.json`. |
+| `autoCapture` | No | Auto-store from conversations after agent ends; default `true`. |
+| `autoRecall` | No | Auto-inject relevant memories before agent starts; default `true`. |
+| `autoExperience` | No | Auto-extract procedural experiences via LLM; default `true`. |
+| `experienceRecall` | No | Include experiences in recall results; default `true`. |
+| `inferOnAdd` | No | Use PowerMem intelligent extraction when adding; default `true`. |
+| `dualWrite` | No | HTTP only: write to remote + local SQLite and queue failed writes. |
+| `localDbPath` | No | Local SQLite path for `dualWrite`. |
+| `localUserId` | No | Local namespace for `dualWrite` (defaults to `userId`). |
+| `localAgentId` | No | Local namespace for `dualWrite` (defaults to `agentId`). |
+| `syncOnResume` | No | Whether to sync pending writes on startup; default `true`. |
+| `syncBatchSize` | No | Pending sync batch size; default `50`. |
+| `syncMinIntervalMs` | No | Minimum interval between sync attempts; default `5000`. |
+| `syncBaseDelayMs` | No | Base delay for retry backoff; default `5000`. |
+| `syncMaxDelayMs` | No | Max delay for retry backoff; default `60000`. |
+| `syncMaxRetries` | No | Max retry count per pending item; default `10`. |
 
 **Auto-capture:** When a session ends, this round’s user/assistant text is sent to PowerMem (`infer: true`) for extraction and storage. At most 3 items per round, each up to about 6000 characters.
 
@@ -305,6 +323,12 @@ Exposed to OpenClaw agents:
 - **memory_recall** — Search long-term memories by query.
 - **memory_store** — Store one memory (optional intelligent extraction on write).
 - **memory_forget** — Delete by memory ID or by search query.
+- **experience_store** — Store a procedural experience.
+- **experience_recall** — Search stored experiences.
+- **agent_memory_add** — Add memory to another agent (HTTP v2 only).
+- **agent_memory_list** — List an agent’s memories (HTTP v2 only).
+- **agent_memory_share** — Share memories across agents (HTTP v2 only).
+- **agent_memory_shared** — List memories shared with an agent (HTTP v2 only).
 
 ---
 

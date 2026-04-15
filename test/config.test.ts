@@ -10,7 +10,7 @@ import {
   DEFAULT_AGENT_ID,
   DEFAULT_PLUGIN_CONFIG,
   type PowerMemConfig,
-} from "../config.js";
+} from "../src/config.js";
 
 describe("powerMemConfigSchema", () => {
   it("parses valid http config with required fields", () => {

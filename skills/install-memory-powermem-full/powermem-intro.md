@@ -18,6 +18,7 @@ Ships with OpenClaw skill **`install-memory-powermem-full`** (folder `install-me
 | Feature | Description |
 |---------|-------------|
 | **Intelligent extraction (Infer)** | On write, an LLM can summarize, dedupe, and structure content. Needs LLM + embedding configured—either injected from **OpenClaw** (default) or from a PowerMem `.env`. |
+| **Experience extraction** | The plugin can distill procedural experiences with LLMs and recall them later. |
 | **Ebbinghaus forgetting curve** | Adjusts retention / importance so less relevant memories fade over time. |
 | **Multi-agent / multi-user isolation** | `userId`, `agentId`, etc. separate namespaces in the store. |
 | **Vector search** | Embedding-based semantic search for recall. |
@@ -34,7 +35,7 @@ Ships with OpenClaw skill **`install-memory-powermem-full`** (folder `install-me
 
 **Optional:** Point **`envFile`** at a PowerMem `.env` for advanced DB/provider tuning; OpenClaw can still override LLM-related keys when `useOpenClawModel` is true.
 
-**HTTP mode:** Run `powermem-server`, set plugin `mode: http` and `baseUrl`.
+**HTTP mode:** Run `powermem-server`, set plugin `mode: http` and `baseUrl`. HTTP v2 supports per-request `config` and agent memory sharing.
 
 ---
 
