@@ -70,6 +70,15 @@ export type PowerMemConfig = {
   syncBaseDelayMs?: number;
   syncMaxDelayMs?: number;
   syncMaxRetries?: number;
+  localVector?: {
+    enabled?: boolean;
+    provider?: string;
+    model?: string;
+    apiKey?: string;
+    baseUrl?: string;
+    headers?: Record<string, string>;
+    extensionPath?: string;
+  };
 };
 
 const DEFAULT_RECALL_LIMIT = 5;
@@ -103,6 +112,7 @@ const ALLOWED_KEYS = [
   "syncBaseDelayMs",
   "syncMaxDelayMs",
   "syncMaxRetries",
+  "localVector",
 ] as const;
 
 /** CLI `pmemPath` when omitted; npm `powermem` bundled with this plugin. */
@@ -163,6 +173,44 @@ export const powerMemConfigSchema = {
       typeof localDbPathRaw === "string" && localDbPathRaw.trim()
         ? resolveEnvVars(localDbPathRaw.trim())
         : undefined;
+    const localVectorRaw = cfg.localVector;
+    const localVectorCandidate =
+      localVectorRaw && typeof localVectorRaw === "object" && !Array.isArray(localVectorRaw)
+        ? (localVectorRaw as Record<string, unknown>)
+        : undefined;
+    const localVector =
+      localVectorCandidate
+        ? pruneUndefined({
+            enabled:
+              typeof localVectorCandidate.enabled === "boolean"
+                ? localVectorCandidate.enabled
+                : undefined,
+            provider:
+              typeof localVectorCandidate.provider === "string" &&
+              localVectorCandidate.provider.trim()
+                ? localVectorCandidate.provider.trim()
+                : undefined,
+            model:
+              typeof localVectorCandidate.model === "string" && localVectorCandidate.model.trim()
+                ? localVectorCandidate.model.trim()
+                : undefined,
+            apiKey:
+              typeof localVectorCandidate.apiKey === "string" && localVectorCandidate.apiKey.trim()
+                ? resolveEnvVars(localVectorCandidate.apiKey.trim())
+                : undefined,
+            baseUrl:
+              typeof localVectorCandidate.baseUrl === "string" &&
+              localVectorCandidate.baseUrl.trim()
+                ? resolveEnvVars(localVectorCandidate.baseUrl.trim()).replace(/\/+$/, "")
+                : undefined,
+            headers: parseHeaderMap(localVectorCandidate.headers),
+            extensionPath:
+              typeof localVectorCandidate.extensionPath === "string" &&
+              localVectorCandidate.extensionPath.trim()
+                ? resolveEnvVars(localVectorCandidate.extensionPath.trim())
+                : undefined,
+          })
+        : undefined;
 
     const syncBatchSize = toPositiveInt(cfg.syncBatchSize, 50, 1, 500);
     const syncMinIntervalMs = toPositiveInt(cfg.syncMinIntervalMs, 5000, 1000, 600000);
@@ -210,6 +258,7 @@ export const powerMemConfigSchema = {
       syncBaseDelayMs,
       syncMaxDelayMs,
       syncMaxRetries,
+      localVector,
     };
   },
 };
@@ -255,6 +304,27 @@ function toPositiveInt(
   return fallback;
 }
 
+function parseHeaderMap(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const entries = Object.entries(value).filter(([, v]) => typeof v === "string");
+  if (entries.length === 0) {
+    return undefined;
+  }
+  return Object.fromEntries(
+    entries.map(([key, val]) => [key, resolveEnvVars(String(val))]),
+  ) as Record<string, string>;
+}
+
+function pruneUndefined<T extends Record<string, unknown>>(value: T): T | undefined {
+  const entries = Object.entries(value).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) {
+    return undefined;
+  }
+  return Object.fromEntries(entries) as T;
+}
+
 /** Default user/agent IDs when not configured (single-tenant style). */
 export const DEFAULT_USER_ID = "openclaw-user";
 export const DEFAULT_AGENT_ID = "openclaw-agent";
@@ -293,6 +363,7 @@ export const DEFAULT_PLUGIN_CONFIG: PowerMemConfig = {
   syncBaseDelayMs: 5000,
   syncMaxDelayMs: 60000,
   syncMaxRetries: 10,
+  localVector: undefined,
 };
 
 export function resolveUserId(cfg: PowerMemConfig): string {

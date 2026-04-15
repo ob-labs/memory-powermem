@@ -23,12 +23,13 @@ import {
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { PowerMemClient, type PowerMemSearchResult } from "./client.js";
 import { PowerMemV2Client } from "./client-v2.js";
 import { PowerMemCLIClient } from "./client-cli.js";
 import { DualWriteClient } from "./dual-write-client.js";
+import { createLocalEmbeddingFactory } from "./local-embedding.js";
 import { LocalSqliteStore } from "./local-sqlite.js";
 import { callLlm } from "./llm.js";
 import {
@@ -106,6 +107,55 @@ function resolveIdentityIds(
   return { userId, agentId };
 }
 
+type AgentIdentity = { userId: string; agentId: string };
+
+function loadAgentIdentityMap(
+  identityPath: string,
+  logger: Logger,
+): Map<string, AgentIdentity> {
+  const map = new Map<string, AgentIdentity>();
+  try {
+    const raw = readFileSync(identityPath, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, AgentIdentity>;
+    if (parsed && typeof parsed === "object") {
+      for (const [agentId, identity] of Object.entries(parsed)) {
+        if (
+          identity &&
+          typeof identity === "object" &&
+          typeof identity.userId === "string" &&
+          typeof identity.agentId === "string"
+        ) {
+          map.set(agentId, { userId: identity.userId, agentId: identity.agentId });
+        }
+      }
+    }
+  } catch (err) {
+    if (String(err).includes("ENOENT")) {
+      return map;
+    }
+    logger.warn?.(`memory-powermem: failed to load agent identity map: ${String(err)}`);
+  }
+  return map;
+}
+
+function saveAgentIdentityMap(
+  identityPath: string,
+  map: Map<string, AgentIdentity>,
+  logger: Logger,
+): void {
+  try {
+    const dir = dirname(identityPath);
+    mkdirSync(dir, { recursive: true });
+    const payload: Record<string, AgentIdentity> = {};
+    for (const [agentId, identity] of map.entries()) {
+      payload[agentId] = identity;
+    }
+    writeFileSync(identityPath, JSON.stringify(payload, null, 2), "utf-8");
+  } catch (err) {
+    logger.warn?.(`memory-powermem: failed to save agent identity map: ${String(err)}`);
+  }
+}
+
 type MemoryClient = {
   health: () => Promise<{ status: string; error?: string }>;
   add: (
@@ -137,6 +187,8 @@ type AgentMemoryClient = {
     offset?: number,
   ) => Promise<Array<Record<string, unknown>>>;
 };
+
+type ToolContext = { agentId?: string } | undefined;
 
 function resolveLocalDbPath(cfg: PowerMemConfig, stateDir: string): string {
   if (cfg.localDbPath && cfg.localDbPath.trim()) return cfg.localDbPath.trim();
@@ -189,36 +241,104 @@ const memoryPlugin = {
           : () => Promise.resolve(buildDefaultSqlitePowermemEnv(stateDir))
         : undefined;
 
-    const localUserId = cfg.localUserId ?? userId;
-    const localAgentId = cfg.localAgentId ?? agentId;
+    const defaultIdentity: AgentIdentity = { userId, agentId };
+    const agentIdentityPath = join(stateDir, "powermem", "agent-identities.json");
+    const agentIdentityMap = loadAgentIdentityMap(agentIdentityPath, api.logger);
+    let defaultIdentityBound = agentIdentityMap.size > 0;
 
-    let client: MemoryClient & AgentMemoryClient;
-    if (cfg.mode === "cli") {
-      client = PowerMemCLIClient.fromConfig(cfg, userId, agentId, { buildProcessEnv }) as MemoryClient;
-    } else {
-      const httpClient =
-        cfg.httpApiVersion === "v2"
-          ? PowerMemV2Client.fromConfig(cfg, userId, agentId)
-          : PowerMemClient.fromConfig(cfg, userId, agentId);
+    const resolveAgentIdentity = (ctxAgentId?: string): AgentIdentity => {
+      if (!ctxAgentId) return defaultIdentity;
+      const cached = agentIdentityMap.get(ctxAgentId);
+      if (cached) return cached;
+      const identity = defaultIdentityBound
+        ? { userId: `user-${randomUUID()}`, agentId: `agent-${randomUUID()}` }
+        : defaultIdentity;
+      defaultIdentityBound = true;
+      agentIdentityMap.set(ctxAgentId, identity);
+      saveAgentIdentityMap(agentIdentityPath, agentIdentityMap, api.logger);
+      return identity;
+    };
 
-      if (cfg.dualWrite) {
-        const localStore = new LocalSqliteStore(resolveLocalDbPath(cfg, stateDir), api.logger);
-        const dualClient = new DualWriteClient(httpClient, localStore, {
-          localUserId,
-          localAgentId,
+    const resolveLocalIdentity = (identity: AgentIdentity): AgentIdentity => ({
+      userId: cfg.localUserId ?? identity.userId,
+      agentId: cfg.localAgentId ?? identity.agentId,
+    });
+
+    const localStore = cfg.dualWrite
+      ? new LocalSqliteStore(resolveLocalDbPath(cfg, stateDir), {
+          logger: api.logger,
+          vector: {
+            enabled: cfg.localVector?.enabled ?? (cfg.dualWrite === true),
+            extensionPath: cfg.localVector?.extensionPath,
+          },
+        })
+      : null;
+
+    const embeddingFactoryCache = new Map<string, ReturnType<typeof createLocalEmbeddingFactory> | null>();
+    const getLocalEmbeddingFactory = (ctxAgentId?: string) => {
+      if (!cfg.dualWrite) return null;
+      const key = ctxAgentId ?? "__default__";
+      if (embeddingFactoryCache.has(key)) {
+        return embeddingFactoryCache.get(key) ?? null;
+      }
+      const localEmbedding = createLocalEmbeddingFactory({
+        api: gw,
+        cfg,
+        agentId: ctxAgentId ?? agentId,
+        logger: api.logger,
+      });
+      embeddingFactoryCache.set(key, localEmbedding);
+      return localEmbedding;
+    };
+
+    const clientCache = new Map<string, MemoryClient & AgentMemoryClient>();
+
+    const buildHttpClient = (identity: AgentIdentity) =>
+      cfg.httpApiVersion === "v2"
+        ? PowerMemV2Client.fromConfig(cfg, identity.userId, identity.agentId)
+        : PowerMemClient.fromConfig(cfg, identity.userId, identity.agentId);
+
+    const createClientForIdentity = (identity: AgentIdentity, ctxAgentId?: string) => {
+      if (cfg.mode === "cli") {
+        return PowerMemCLIClient.fromConfig(cfg, identity.userId, identity.agentId, {
+          buildProcessEnv,
+        }) as MemoryClient;
+      }
+
+      const httpClient = buildHttpClient(identity);
+      if (cfg.dualWrite && localStore) {
+        const localIdentity = resolveLocalIdentity(identity);
+        const localEmbedding = getLocalEmbeddingFactory(ctxAgentId);
+        return new DualWriteClient(httpClient, localStore, {
+          localUserId: localIdentity.userId,
+          localAgentId: localIdentity.agentId,
           syncOnResume: cfg.syncOnResume !== false,
           syncBatchSize: cfg.syncBatchSize ?? 50,
           syncMinIntervalMs: cfg.syncMinIntervalMs ?? 5000,
           syncBaseDelayMs: cfg.syncBaseDelayMs ?? 5000,
           syncMaxDelayMs: cfg.syncMaxDelayMs ?? 60000,
           syncMaxRetries: cfg.syncMaxRetries ?? 10,
+          embedding: localEmbedding,
           logger: api.logger,
-        });
-        void dualClient.syncPending("startup");
-        client = dualClient as MemoryClient & AgentMemoryClient;
-      } else {
-        client = httpClient as MemoryClient & AgentMemoryClient;
+        }) as MemoryClient & AgentMemoryClient;
       }
+
+      return httpClient as MemoryClient & AgentMemoryClient;
+    };
+
+    const getClientForAgent = (ctxAgentId?: string) => {
+      const key = ctxAgentId ?? "__default__";
+      const cached = clientCache.get(key);
+      if (cached) return cached;
+      const identity = resolveAgentIdentity(ctxAgentId);
+      const created = createClientForIdentity(identity, ctxAgentId);
+      clientCache.set(key, created);
+      return created;
+    };
+
+    const client = getClientForAgent();
+    if (cfg.dualWrite && "syncPending" in client) {
+      void (client as DualWriteClient).syncPending("startup");
     }
     const resolvedPmem =
       cfg.mode === "cli" ? resolvePmemExecutable(cfg.pmemPath ?? DEFAULT_PMEM_PATH) : "";
@@ -236,7 +356,7 @@ const memoryPlugin = {
     // ========================================================================
 
     api.registerTool(
-      {
+      (ctx: ToolContext) => ({
         name: "memory_recall",
         label: "Memory Recall",
         description:
@@ -251,6 +371,7 @@ const memoryPlugin = {
           ),
         }),
         async execute(_toolCallId: string, params: Record<string, unknown>) {
+          const agentClient = getClientForAgent(ctx?.agentId);
           const limit =
             typeof (params as { limit?: number }).limit === "number"
               ? Math.max(1, Math.min(100, Math.floor((params as { limit: number }).limit)))
@@ -263,7 +384,7 @@ const memoryPlugin = {
 
           try {
             const requestLimit = Math.min(100, Math.max(limit * 2, limit + 10));
-            const raw = await client.search(query, requestLimit);
+            const raw = await agentClient.search(query, requestLimit);
             const results = raw
               .filter((r) => (r.score ?? 0) >= scoreThreshold)
               .slice(0, limit);
@@ -307,12 +428,12 @@ const memoryPlugin = {
             };
           }
         },
-      },
+      }),
       { name: "memory_recall" },
     );
 
     api.registerTool(
-      {
+      (ctx: ToolContext) => ({
         name: "memory_store",
         label: "Memory Store",
         description:
@@ -324,13 +445,14 @@ const memoryPlugin = {
           ),
         }),
         async execute(_toolCallId: string, params: Record<string, unknown>) {
+          const agentClient = getClientForAgent(ctx?.agentId);
           const { text, importance = 0.7 } = params as {
             text: string;
             importance?: number;
           };
 
           try {
-            const created = await client.add(text, {
+            const created = await agentClient.add(text, {
               infer: cfg.inferOnAdd,
               metadata: { importance },
             });
@@ -369,12 +491,12 @@ const memoryPlugin = {
             };
           }
         },
-      },
+      }),
       { name: "memory_store" },
     );
 
     api.registerTool(
-      {
+      (ctx: ToolContext) => ({
         name: "memory_forget",
         label: "Memory Forget",
         description: "Delete specific memories. GDPR-compliant.",
@@ -383,11 +505,12 @@ const memoryPlugin = {
           memoryId: Type.Optional(Type.String({ description: "Specific memory ID" })),
         }),
         async execute(_toolCallId: string, params: Record<string, unknown>) {
+          const agentClient = getClientForAgent(ctx?.agentId);
           const { query, memoryId } = params as { query?: string; memoryId?: string };
 
           try {
             if (memoryId) {
-              await client.delete(memoryId);
+              await agentClient.delete(memoryId);
               return {
                 content: [{ type: "text", text: `Memory ${memoryId} forgotten.` }],
                 details: { action: "deleted", id: memoryId },
@@ -395,7 +518,7 @@ const memoryPlugin = {
             }
 
             if (query) {
-              const results = await client.search(query, 5);
+              const results = await agentClient.search(query, 5);
               if (results.length === 0) {
                 return {
                   content: [{ type: "text", text: "No matching memories found." }],
@@ -403,7 +526,7 @@ const memoryPlugin = {
                 };
               }
               if (results.length === 1 && (results[0].score ?? 0) > 0.9) {
-                await client.delete(results[0].memory_id);
+                await agentClient.delete(results[0].memory_id);
                 return {
                   content: [
                     {
@@ -455,12 +578,12 @@ const memoryPlugin = {
             };
           }
         },
-      },
+      }),
       { name: "memory_forget" },
     );
 
     api.registerTool(
-      {
+      (ctx: ToolContext) => ({
         name: "experience_store",
         label: "Experience Store",
         description: "Store a procedural experience or lesson learned.",
@@ -472,13 +595,14 @@ const memoryPlugin = {
           tags: Type.Optional(Type.Array(Type.String(), { description: "Optional tags" })),
         }),
         async execute(_toolCallId: string, params: Record<string, unknown>) {
+          const agentClient = getClientForAgent(ctx?.agentId);
           const { text, importance = 0.7, tags } = params as {
             text: string;
             importance?: number;
             tags?: string[];
           };
           try {
-            const created = await client.add(text, {
+            const created = await agentClient.add(text, {
               infer: false,
               metadata: { type: "experience", importance, tags },
             });
@@ -500,12 +624,12 @@ const memoryPlugin = {
             };
           }
         },
-      },
+      }),
       { name: "experience_store" },
     );
 
     api.registerTool(
-      {
+      (ctx: ToolContext) => ({
         name: "experience_recall",
         label: "Experience Recall",
         description: "Search stored experiences for procedural guidance.",
@@ -519,6 +643,7 @@ const memoryPlugin = {
           ),
         }),
         async execute(_toolCallId: string, params: Record<string, unknown>) {
+          const agentClient = getClientForAgent(ctx?.agentId);
           const limit =
             typeof (params as { limit?: number }).limit === "number"
               ? Math.max(1, Math.min(100, Math.floor((params as { limit: number }).limit)))
@@ -531,7 +656,7 @@ const memoryPlugin = {
 
           try {
             const requestLimit = Math.min(100, Math.max(limit * 2, limit + 10));
-            const raw = await client.search(query, requestLimit);
+            const raw = await agentClient.search(query, requestLimit);
             const { experiences } = splitExperiences(raw);
             const results = experiences
               .filter((r) => (r.score ?? 0) >= scoreThreshold)
@@ -570,15 +695,13 @@ const memoryPlugin = {
             };
           }
         },
-      },
+      }),
       { name: "experience_recall" },
     );
 
-    if (cfg.httpApiVersion === "v2" && "agentMemoryAdd" in (client as AgentMemoryClient)) {
-      const agentClient = client as AgentMemoryClient;
-
+    if (cfg.httpApiVersion === "v2") {
       api.registerTool(
-        {
+        (ctx: ToolContext) => ({
           name: "agent_memory_add",
           label: "Agent Memory Add",
           description: "Add memory to a target agent's memory pool (v2 only).",
@@ -587,9 +710,16 @@ const memoryPlugin = {
             text: Type.String({ description: "Memory content" }),
           }),
           async execute(_toolCallId: string, params: Record<string, unknown>) {
+            const agentClient = getClientForAgent(ctx?.agentId) as AgentMemoryClient;
+            if (!agentClient.agentMemoryAdd) {
+              return {
+                content: [{ type: "text", text: "Agent memory add not available in this mode." }],
+                details: { error: "unsupported" },
+              };
+            }
             const { agentId, text } = params as { agentId: string; text: string };
             try {
-              const record = await agentClient.agentMemoryAdd?.(agentId, text);
+              const record = await agentClient.agentMemoryAdd(agentId, text);
               const id = record?.memory_id ? String(record.memory_id) : "unknown";
               return {
                 content: [{ type: "text", text: `Agent memory stored (id: ${id}).` }],
@@ -608,12 +738,12 @@ const memoryPlugin = {
               };
             }
           },
-        },
+        }),
         { name: "agent_memory_add" },
       );
 
       api.registerTool(
-        {
+        (ctx: ToolContext) => ({
           name: "agent_memory_share",
           label: "Agent Memory Share",
           description: "Share memories from one agent to another (v2 only).",
@@ -625,18 +755,21 @@ const memoryPlugin = {
             ),
           }),
           async execute(_toolCallId: string, params: Record<string, unknown>) {
+            const agentClient = getClientForAgent(ctx?.agentId) as AgentMemoryClient;
+            if (!agentClient.agentMemoryShare) {
+              return {
+                content: [{ type: "text", text: "Agent memory share not available in this mode." }],
+                details: { error: "unsupported" },
+              };
+            }
             const { fromAgentId, targetAgentId, memoryIds } = params as {
               fromAgentId?: string;
               targetAgentId: string;
               memoryIds?: number[];
             };
-            const source = fromAgentId ?? agentId;
+            const source = fromAgentId ?? resolveAgentIdentity(ctx?.agentId).agentId;
             try {
-              const result = await agentClient.agentMemoryShare?.(
-                source,
-                targetAgentId,
-                memoryIds,
-              );
+              const result = await agentClient.agentMemoryShare(source, targetAgentId, memoryIds);
               const shared = result?.shared_count ?? 0;
               return {
                 content: [
@@ -657,12 +790,12 @@ const memoryPlugin = {
               };
             }
           },
-        },
+        }),
         { name: "agent_memory_share" },
       );
 
       api.registerTool(
-        {
+        (ctx: ToolContext) => ({
           name: "agent_memory_list",
           label: "Agent Memory List",
           description: "List memories owned by an agent (v2 only).",
@@ -672,13 +805,20 @@ const memoryPlugin = {
             offset: Type.Optional(Type.Number({ description: "Offset (default: 0)" })),
           }),
           async execute(_toolCallId: string, params: Record<string, unknown>) {
+            const agentClient = getClientForAgent(ctx?.agentId) as AgentMemoryClient;
+            if (!agentClient.agentMemoryList) {
+              return {
+                content: [{ type: "text", text: "Agent memory list not available in this mode." }],
+                details: { error: "unsupported" },
+              };
+            }
             const { agentId: targetAgentId, limit = 20, offset = 0 } = params as {
               agentId: string;
               limit?: number;
               offset?: number;
             };
             try {
-              const rows = await agentClient.agentMemoryList?.(targetAgentId, limit, offset);
+              const rows = await agentClient.agentMemoryList(targetAgentId, limit, offset);
               const list = rows ?? [];
               const text = list
                 .map((row, idx) => `${idx + 1}. ${String(row.content ?? "").slice(0, 80)}`)
@@ -702,12 +842,12 @@ const memoryPlugin = {
               };
             }
           },
-        },
+        }),
         { name: "agent_memory_list" },
       );
 
       api.registerTool(
-        {
+        (ctx: ToolContext) => ({
           name: "agent_memory_shared",
           label: "Agent Memory Shared",
           description: "List memories shared with an agent (v2 only).",
@@ -717,13 +857,20 @@ const memoryPlugin = {
             offset: Type.Optional(Type.Number({ description: "Offset (default: 0)" })),
           }),
           async execute(_toolCallId: string, params: Record<string, unknown>) {
+            const agentClient = getClientForAgent(ctx?.agentId) as AgentMemoryClient;
+            if (!agentClient.agentMemoryShared) {
+              return {
+                content: [{ type: "text", text: "Agent memory shared not available in this mode." }],
+                details: { error: "unsupported" },
+              };
+            }
             const { agentId: targetAgentId, limit = 20, offset = 0 } = params as {
               agentId: string;
               limit?: number;
               offset?: number;
             };
             try {
-              const rows = await agentClient.agentMemoryShared?.(targetAgentId, limit, offset);
+              const rows = await agentClient.agentMemoryShared(targetAgentId, limit, offset);
               const list = rows ?? [];
               const text = list
                 .map((row, idx) => `${idx + 1}. ${String(row.content ?? "").slice(0, 80)}`)
@@ -747,7 +894,7 @@ const memoryPlugin = {
               };
             }
           },
-        },
+        }),
         { name: "agent_memory_shared" },
       );
     }
@@ -975,7 +1122,9 @@ const memoryPlugin = {
     }
 
     if (cfg.autoRecall) {
-      api.on("before_agent_start", async (event: unknown) => {
+      api.on("before_agent_start", async (...args: unknown[]) => {
+        const [event, ctx] = args as [unknown, ToolContext];
+        const agentClient = getClientForAgent(ctx?.agentId);
         const e = event as { prompt: string; messages?: unknown[] };
         const query =
           (typeof e.prompt === "string" && e.prompt.trim().length >= 5
@@ -990,7 +1139,7 @@ const memoryPlugin = {
 
         try {
           const requestLimit = Math.min(100, Math.max(recallLimit * 2, recallLimit + 10));
-          const raw = await client.search(query, requestLimit);
+          const raw = await agentClient.search(query, requestLimit);
           const { memories, experiences } = splitExperiences(raw);
           const memoryResults = memories
             .filter((r) => (r.score ?? 0) >= scoreThreshold)
@@ -1038,7 +1187,9 @@ const memoryPlugin = {
     }
 
     if (cfg.autoCapture) {
-      api.on("agent_end", async (event: unknown) => {
+      api.on("agent_end", async (...args: unknown[]) => {
+        const [event, ctx] = args as [unknown, ToolContext];
+        const agentClient = getClientForAgent(ctx?.agentId);
         const e = event as { messages: unknown[]; success: boolean; error?: string };
         if (!e.success || !e.messages || e.messages.length === 0) {
           return;
@@ -1094,7 +1245,7 @@ const memoryPlugin = {
 
           let stored = 0;
           for (const chunk of chunks) {
-            const created = await client.add(chunk, { infer: cfg.inferOnAdd });
+            const created = await agentClient.add(chunk, { infer: cfg.inferOnAdd });
             stored += created.length;
           }
           if (stored > 0) {
@@ -1107,7 +1258,9 @@ const memoryPlugin = {
     }
 
     if (cfg.autoExperience) {
-      api.on("agent_end", async (event: unknown) => {
+      api.on("agent_end", async (...args: unknown[]) => {
+        const [event, ctx] = args as [unknown, ToolContext];
+        const agentClient = getClientForAgent(ctx?.agentId);
         const e = event as { messages: unknown[]; success: boolean; error?: string };
         if (!e.success || !e.messages || e.messages.length === 0) {
           return;
@@ -1117,7 +1270,7 @@ const memoryPlugin = {
           const experiences = await extractExperiencesWithLlm(e.messages);
           if (experiences.length === 0) return;
           for (const exp of experiences) {
-            await client.add(exp, {
+            await agentClient.add(exp, {
               infer: false,
               metadata: {
                 type: "experience",

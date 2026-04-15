@@ -221,6 +221,7 @@ Plugin data and default SQLite follow **that** instance’s `stateDir`.
 | `dualWrite` | `false` | HTTP only: remote + local SQLite dual-write. |
 | `localDbPath` | — | Local SQLite path for dual-write. |
 | `localUserId` / `localAgentId` | — | Local namespace for dual-write (defaults to `userId`/`agentId`). |
+| `localVector` | — | Optional local vector search for dual-write fallback (OpenAI/Ollama + sqlite-vec). |
 | `syncOnResume` / `syncBatchSize` / `syncMinIntervalMs` / `syncBaseDelayMs` / `syncMaxDelayMs` / `syncMaxRetries` | see defaults | Retry controls for pending sync. |
 
 ## Daily Operations

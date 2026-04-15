@@ -21,7 +21,8 @@
     "@mariozechner/pi-ai": "^0.67.2",
     "@sinclair/typebox": "^0.34.0",
     "better-sqlite3": "^12.9.0",
-    "powermem": "^0.1.1"
+    "powermem": "^0.1.1",
+    "sqlite-vec": "^0.1.9"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

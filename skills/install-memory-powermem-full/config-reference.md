@@ -61,12 +61,31 @@ Quick reference for skill **`install-memory-powermem-full`**. See **SKILL.md** i
 | `localDbPath` | — | Local SQLite path for dual-write. |
 | `localUserId` | — | Local namespace for dual-write (defaults to `userId`). |
 | `localAgentId` | — | Local namespace for dual-write (defaults to `agentId`). |
+| `localVector` | — | Optional local vector search for dual-write fallback (OpenAI/Ollama embeddings + sqlite-vec). |
 | `syncOnResume` | `true` | Sync pending writes on startup. |
 | `syncBatchSize` | `50` | Batch size for sync. |
 | `syncMinIntervalMs` | `5000` | Minimum sync interval. |
 | `syncBaseDelayMs` | `5000` | Base retry delay. |
 | `syncMaxDelayMs` | `60000` | Max retry delay. |
 | `syncMaxRetries` | `10` | Max retries per item. |
+
+**`localVector` fields (optional):**
+
+```json
+{
+  "localVector": {
+    "enabled": true,
+    "provider": "openai",
+    "model": "text-embedding-3-small",
+    "apiKey": "YOUR_KEY",
+    "baseUrl": "https://api.openai.com",
+    "headers": { "X-Org": "..." }
+  }
+}
+```
+
+- If `localVector` is omitted and `dualWrite: true`, the plugin attempts to reuse **OpenClaw** `agents.*.memorySearch` provider/model; otherwise defaults to OpenAI (`text-embedding-3-small`).  
+- If embedding auth is unavailable, it automatically falls back to local **FTS/token** search.  
 
 ---
 

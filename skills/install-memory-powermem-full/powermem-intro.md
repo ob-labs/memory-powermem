@@ -22,6 +22,7 @@ Ships with OpenClaw skill **`install-memory-powermem-full`** (folder `install-me
 | **Ebbinghaus forgetting curve** | Adjusts retention / importance so less relevant memories fade over time. |
 | **Multi-agent / multi-user isolation** | `userId`, `agentId`, etc. separate namespaces in the store. |
 | **Vector search** | Embedding-based semantic search for recall. |
+| **Local dual-write vector fallback** | Optional local SQLite + sqlite-vec for vector search when HTTP backend is down. |
 
 ---
 

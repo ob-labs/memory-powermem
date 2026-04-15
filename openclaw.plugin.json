@@ -144,6 +144,11 @@
       "placeholder": "10",
       "help": "Skip items after this many failed retries (0 = unlimited)"
     },
+    "localVector": {
+      "label": "Local vector search",
+      "advanced": true,
+      "help": "Optional local vector fallback for dual-write (OpenAI/Ollama compatible embeddings + sqlite-vec)."
+    },
     "useOpenClawModel": {
       "label": "Use OpenClaw LLM for PowerMem",
       "advanced": true,
@@ -180,6 +185,21 @@
       "syncBaseDelayMs": { "type": "number" },
       "syncMaxDelayMs": { "type": "number" },
       "syncMaxRetries": { "type": "number" },
+      "localVector": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "apiKey": { "type": "string" },
+          "baseUrl": { "type": "string" },
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      },
       "useOpenClawModel": { "type": "boolean" }
     },
     "required": []

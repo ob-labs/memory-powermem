@@ -4,6 +4,7 @@
  */
 
 import Database from "better-sqlite3";
+import sqliteVec from "sqlite-vec";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -28,6 +29,11 @@ export type PendingRow = {
   infer: boolean;
   queued_at: string;
   retries: number;
+};
+
+export type LocalVectorConfig = {
+  enabled: boolean;
+  extensionPath?: string;
 };
 
 type Logger = { info?: (msg: string) => void; warn?: (msg: string) => void };
@@ -67,21 +73,43 @@ function tokenOverlap(queryTokens: string[], contentTokens: string[]): number {
   return hits / queryTokens.length;
 }
 
+const VECTOR_TABLE = "memories_vec";
+const META_TABLE = "meta";
+const VECTOR_DIMS_KEY = "vector_dims";
+
+function vectorToBlob(embedding: number[]): Buffer {
+  return Buffer.from(new Float32Array(embedding).buffer);
+}
+
 export class LocalSqliteStore {
   private db: Database.Database;
   private logger?: Logger;
   private ftsEnabled = false;
   private hasNextRetryAt = true;
+  private vector = {
+    enabled: false,
+    available: false,
+    dims: undefined as number | undefined,
+    extensionPath: undefined as string | undefined,
+    loadError: undefined as string | undefined,
+  };
 
-  constructor(dbPath: string, logger?: Logger) {
+  constructor(dbPath: string, options?: { logger?: Logger; vector?: LocalVectorConfig }) {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
-    this.logger = logger;
+    this.logger = options?.logger;
+    this.vector.enabled = options?.vector?.enabled ?? false;
+    this.vector.extensionPath = options?.vector?.extensionPath;
     this.init();
   }
 
   private init(): void {
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS ${META_TABLE} (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS memories (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         remote_id TEXT,
@@ -119,6 +147,11 @@ export class LocalSqliteStore {
       CREATE INDEX IF NOT EXISTS idx_pending_created
         ON pending_writes(queued_at);
     `);
+
+    this.vector.dims = this.readVectorDims();
+    if (this.vector.enabled) {
+      this.loadVectorExtension();
+    }
 
     try {
       this.db.exec(`
@@ -165,6 +198,100 @@ export class LocalSqliteStore {
       } else {
         this.hasNextRetryAt = false;
       }
+    }
+  }
+
+  private readVectorDims(): number | undefined {
+    try {
+      const row = this.db
+        .prepare(`SELECT value FROM ${META_TABLE} WHERE key = ?`)
+        .get(VECTOR_DIMS_KEY) as { value?: string } | undefined;
+      const raw = row?.value;
+      if (!raw) return undefined;
+      const n = Number(raw);
+      return Number.isFinite(n) ? Math.floor(n) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private writeVectorDims(value?: number): void {
+    try {
+      if (!value) {
+        this.db.prepare(`DELETE FROM ${META_TABLE} WHERE key = ?`).run(VECTOR_DIMS_KEY);
+        return;
+      }
+      this.db
+        .prepare(
+          `INSERT INTO ${META_TABLE} (key, value) VALUES (?, ?)\n` +
+            `ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        )
+        .run(VECTOR_DIMS_KEY, String(value));
+    } catch (err) {
+      this.logger?.warn?.(`local-sqlite: failed to persist vector dims: ${String(err)}`);
+    }
+  }
+
+  private loadVectorExtension(): void {
+    try {
+      if (this.vector.extensionPath) {
+        this.db.loadExtension(this.vector.extensionPath);
+      } else {
+        sqliteVec.load(this.db);
+      }
+      this.vector.available = true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.vector.available = false;
+      this.vector.loadError = message;
+      this.logger?.warn?.(`local-sqlite: sqlite-vec unavailable: ${message}`);
+    }
+  }
+
+  private ensureVectorTable(dimensions: number): boolean {
+    if (!this.vector.enabled || !this.vector.available) {
+      return false;
+    }
+    if (this.vector.dims === dimensions && !this.vectorTableNeedsRebuild()) {
+      return true;
+    }
+    if (this.vector.dims && this.vector.dims !== dimensions) {
+      this.dropVectorTable();
+    } else if (this.vectorTableNeedsRebuild()) {
+      this.dropVectorTable();
+    }
+    this.db.exec(
+      `CREATE VIRTUAL TABLE IF NOT EXISTS ${VECTOR_TABLE} USING vec0(\n` +
+        `  embedding FLOAT[${dimensions}]\n` +
+        `)`,
+    );
+    this.vector.dims = dimensions;
+    this.writeVectorDims(dimensions);
+    return true;
+  }
+
+  private dropVectorTable(): void {
+    try {
+      this.db.exec(`DROP TABLE IF EXISTS ${VECTOR_TABLE}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger?.warn?.(`local-sqlite: failed to drop ${VECTOR_TABLE}: ${message}`);
+    }
+    this.vector.dims = undefined;
+    this.writeVectorDims(undefined);
+  }
+
+  private vectorTableNeedsRebuild(): boolean {
+    try {
+      const cols = this.db
+        .prepare(`PRAGMA table_info(${VECTOR_TABLE})`)
+        .all() as Array<{ name?: string }>;
+      if (!cols || cols.length === 0) {
+        return false;
+      }
+      return cols.some((col) => col?.name === "id");
+    } catch {
+      return false;
     }
   }
 
@@ -238,6 +365,52 @@ export class LocalSqliteStore {
     return Number(info.lastInsertRowid ?? 0);
   }
 
+  upsertEmbedding(localId: number, embedding: number[]): boolean {
+    if (!this.ensureVectorTable(embedding.length)) {
+      return false;
+    }
+    const rowid =
+      typeof localId === "bigint"
+        ? localId
+        : Number.isSafeInteger(localId) && localId > 0
+          ? BigInt(localId)
+          : null;
+    if (!rowid) {
+      this.logger?.warn?.(
+        `local-sqlite: skip vector write (invalid rowid=${String(localId)})`,
+      );
+      return false;
+    }
+    const writeOnce = () => {
+      this.db.prepare(`DELETE FROM ${VECTOR_TABLE} WHERE rowid = ?`).run(rowid);
+      this.db
+        .prepare(`INSERT INTO ${VECTOR_TABLE} (rowid, embedding) VALUES (?, ?)`)
+        .run(rowid, vectorToBlob(embedding));
+    };
+    try {
+      writeOnce();
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("primary key") || message.includes("memories_vec")) {
+        this.dropVectorTable();
+        if (!this.ensureVectorTable(embedding.length)) {
+          return false;
+        }
+        try {
+          writeOnce();
+          return true;
+        } catch (retryErr) {
+          const retryMessage = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          this.logger?.warn?.(`local-sqlite: vector write failed: ${retryMessage}`);
+          return false;
+        }
+      }
+      this.logger?.warn?.(`local-sqlite: vector write failed: ${message}`);
+      return false;
+    }
+  }
+
   updateRemoteId(localId: number, remoteId: string): void {
     const stmt = this.db.prepare(`
       UPDATE memories SET remote_id = @remote_id, updated_at = @updated_at
@@ -247,6 +420,13 @@ export class LocalSqliteStore {
   }
 
   deleteByRemoteId(remoteId: string): void {
+    const row = this.db
+      .prepare(`SELECT id FROM memories WHERE remote_id = ?`)
+      .get(remoteId) as { id: number } | undefined;
+    if (row?.id) {
+      this.deleteByLocalId(row.id);
+      return;
+    }
     const stmt = this.db.prepare(`DELETE FROM memories WHERE remote_id = ?`);
     stmt.run(remoteId);
   }
@@ -254,6 +434,17 @@ export class LocalSqliteStore {
   deleteByLocalId(localId: number): void {
     const stmt = this.db.prepare(`DELETE FROM memories WHERE id = ?`);
     stmt.run(localId);
+    if (this.vector.enabled && this.vector.available) {
+      const rowid =
+        typeof localId === "bigint"
+          ? localId
+          : Number.isSafeInteger(localId) && localId > 0
+            ? BigInt(localId)
+            : null;
+      if (rowid) {
+        this.db.prepare(`DELETE FROM ${VECTOR_TABLE} WHERE rowid = ?`).run(rowid);
+      }
+    }
   }
 
   search(params: {
@@ -364,6 +555,69 @@ export class LocalSqliteStore {
       .slice(0, params.limit);
 
     return scored;
+  }
+
+  searchVector(params: {
+    embedding: number[];
+    limit: number;
+    userId?: string;
+    agentId?: string;
+  }): Array<LocalMemoryRow & { score: number }> {
+    if (!this.vector.enabled || !this.vector.available) {
+      return [];
+    }
+    if (params.embedding.length === 0) {
+      return [];
+    }
+    if (!this.ensureVectorTable(params.embedding.length)) {
+      return [];
+    }
+    const clauses: string[] = [];
+    const values: Array<string | number | null> = [];
+    if (params.userId) {
+      clauses.push("m.user_id = ?");
+      values.push(params.userId);
+    }
+    if (params.agentId) {
+      clauses.push("m.agent_id = ?");
+      values.push(params.agentId);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const stmt = this.db.prepare(
+      `SELECT m.id, m.remote_id, m.content, m.metadata, m.user_id, m.agent_id, m.created_at, m.updated_at,\n` +
+        `       vec_distance_cosine(v.embedding, ?) AS dist\n` +
+        `  FROM ${VECTOR_TABLE} v\n` +
+        `  JOIN memories m ON m.id = v.rowid\n` +
+        ` ${where}\n` +
+        ` ORDER BY dist ASC\n` +
+        ` LIMIT ?`,
+    );
+    const rows = stmt.all(
+      vectorToBlob(params.embedding),
+      ...values,
+      params.limit,
+    ) as Array<{
+      id: number;
+      remote_id: string | null;
+      content: string;
+      metadata: string | null;
+      user_id: string | null;
+      agent_id: string | null;
+      created_at: string;
+      updated_at: string;
+      dist: number;
+    }>;
+    return rows.map((row) => ({
+      id: row.id,
+      remote_id: row.remote_id,
+      content: row.content,
+      metadata: safeJsonParse(row.metadata),
+      user_id: row.user_id,
+      agent_id: row.agent_id,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      score: 1 - row.dist,
+    }));
   }
 
   enqueuePending(params: {

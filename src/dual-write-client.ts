@@ -1,4 +1,5 @@
 import type { PowerMemAddResult, PowerMemSearchResult } from "./client.js";
+import type { LocalEmbeddingFactory } from "./local-embedding.js";
 import { LocalSqliteStore } from "./local-sqlite.js";
 
 export type RemoteClient = {
@@ -41,6 +42,7 @@ export type DualWriteOptions = {
   syncBaseDelayMs: number;
   syncMaxDelayMs: number;
   syncMaxRetries: number;
+  embedding?: LocalEmbeddingFactory | null;
   logger?: Logger;
 };
 
@@ -55,6 +57,7 @@ export class DualWriteClient {
   private syncBaseDelayMs: number;
   private syncMaxDelayMs: number;
   private syncMaxRetries: number;
+  private embedding?: LocalEmbeddingFactory | null;
   private logger?: Logger;
   private pendingSyncInFlight = false;
   private lastSyncAt = 0;
@@ -70,7 +73,21 @@ export class DualWriteClient {
     this.syncBaseDelayMs = options.syncBaseDelayMs;
     this.syncMaxDelayMs = options.syncMaxDelayMs;
     this.syncMaxRetries = options.syncMaxRetries;
+    this.embedding = options.embedding ?? null;
     this.logger = options.logger;
+  }
+
+  private async upsertEmbedding(localId: number, content: string): Promise<void> {
+    if (!this.embedding) return;
+    const provider = await this.embedding.get();
+    if (!provider) return;
+    try {
+      const embedding = await provider.embed(content);
+      if (embedding.length === 0) return;
+      this.local.upsertEmbedding(localId, embedding);
+    } catch (err) {
+      this.logger?.warn?.(`dual-write: local embedding failed: ${String(err)}`);
+    }
   }
 
   async health(): Promise<{ status: string; error?: string }> {
@@ -87,13 +104,14 @@ export class DualWriteClient {
         for (const row of created) {
           const remoteId = String(row.memory_id ?? "");
           if (remoteId) {
-            this.local.upsertRemoteMemory({
+            const localId = this.local.upsertRemoteMemory({
               remoteId,
               content: row.content,
               metadata: row.metadata ?? options.metadata,
               userId: this.localUserId,
               agentId: this.localAgentId,
             });
+            await this.upsertEmbedding(localId, row.content);
           }
         }
       }
@@ -106,6 +124,7 @@ export class DualWriteClient {
         userId: this.localUserId,
         agentId: this.localAgentId,
       });
+      await this.upsertEmbedding(localId, content);
       this.local.enqueuePending({
         localMemoryId: localId,
         content,
@@ -136,19 +155,42 @@ export class DualWriteClient {
         for (const row of results) {
           const remoteId = String(row.memory_id ?? "");
           if (!remoteId) continue;
-          this.local.upsertRemoteMemory({
+          const localId = this.local.upsertRemoteMemory({
             remoteId,
             content: row.content,
             metadata: row.metadata,
             userId: this.localUserId,
             agentId: this.localAgentId,
           });
+          await this.upsertEmbedding(localId, row.content);
         }
       }
       void this.syncPending("remote-search-success");
       return results;
     } catch (err) {
       this.logger?.warn?.(`dual-write: remote search failed, fallback to local: ${String(err)}`);
+      const provider = await this.embedding?.get();
+      if (provider) {
+        try {
+          const embedding = await provider.embed(query);
+          const vectorRows = this.local.searchVector({
+            embedding,
+            limit,
+            userId: this.localUserId,
+            agentId: this.localAgentId,
+          });
+          if (vectorRows.length > 0) {
+            return vectorRows.map((row) => ({
+              memory_id: row.remote_id ?? String(row.id),
+              content: row.content,
+              score: row.score,
+              metadata: row.metadata,
+            }));
+          }
+        } catch (embedErr) {
+          this.logger?.warn?.(`dual-write: local vector search failed: ${String(embedErr)}`);
+        }
+      }
       const rows = this.local.search({
         query,
         limit,
