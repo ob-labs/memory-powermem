@@ -168,7 +168,7 @@ export const powerMemConfigSchema = {
     const httpApiVersion =
       cfg.httpApiVersion === "v2" ? "v2" : "v1";
 
-  const requestTimeoutMs = toPositiveInt(cfg.requestTimeoutMs, 10000, 0, 300000);
+  const requestTimeoutMs = toPositiveInt(cfg.requestTimeoutMs, 30000, 0, 300000);
     const requestConfig =
       cfg.requestConfig && typeof cfg.requestConfig === "object" && !Array.isArray(cfg.requestConfig)
         ? cfg.requestConfig as Record<string, unknown>
@@ -352,7 +352,7 @@ export const DEFAULT_PLUGIN_CONFIG: PowerMemConfig = {
   mode: "cli",
   baseUrl: "",
   httpApiVersion: "v1",
-  requestTimeoutMs: 10000,
+  requestTimeoutMs: 30000,
   requestConfig: undefined,
   envFile: undefined,
   pmemPath: DEFAULT_PMEM_PATH,

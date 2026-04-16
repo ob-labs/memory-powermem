@@ -76,7 +76,7 @@ export class PowerMemClient {
     this.apiKey = options.apiKey;
     this.userId = options.userId ?? "openclaw-user";
     this.agentId = options.agentId ?? "openclaw-agent";
-    this.timeoutMs = options.timeoutMs ?? 10000;
+    this.timeoutMs = options.timeoutMs ?? 30000;
   }
 
   static fromConfig(cfg: PowerMemConfig, userId: string, agentId: string): PowerMemClient {

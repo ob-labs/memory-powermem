@@ -1228,102 +1228,113 @@ const memoryPlugin = {
     }
 
     if (cfg.autoCapture) {
-      api.on("agent_end", async (...args: unknown[]) => {
+      api.on("agent_end", (...args: unknown[]) => {
         const [event, ctx] = args as [unknown, ToolContext];
-        const agentClient = getClientForAgent(ctx?.agentId);
         const e = event as { messages: unknown[]; success: boolean; error?: string };
         if (!e.success || !e.messages || e.messages.length === 0) {
           return;
         }
+        const messages = e.messages;
+        const agentId = ctx?.agentId;
 
-        try {
-          const texts: string[] = [];
-          for (const msg of e.messages) {
-            if (!msg || typeof msg !== "object") continue;
-            const msgObj = msg as Record<string, unknown>;
-            const role = msgObj.role;
-            if (role !== "user" && role !== "assistant") continue;
-            const content = msgObj.content;
-            if (typeof content === "string") {
-              texts.push(content);
-              continue;
-            }
-            if (Array.isArray(content)) {
-              for (const block of content) {
-                if (
-                  block &&
-                  typeof block === "object" &&
-                  "type" in block &&
-                  (block as Record<string, unknown>).type === "text" &&
-                  "text" in block &&
-                  typeof (block as Record<string, unknown>).text === "string"
-                ) {
-                  texts.push((block as Record<string, unknown>).text as string);
+        void (async () => {
+          try {
+            const agentClient = getClientForAgent(agentId);
+            const texts: string[] = [];
+            for (const msg of messages) {
+              if (!msg || typeof msg !== "object") continue;
+              const msgObj = msg as Record<string, unknown>;
+              const role = msgObj.role;
+              if (role !== "user" && role !== "assistant") continue;
+              const content = msgObj.content;
+              if (typeof content === "string") {
+                texts.push(content);
+                continue;
+              }
+              if (Array.isArray(content)) {
+                for (const block of content) {
+                  if (
+                    block &&
+                    typeof block === "object" &&
+                    "type" in block &&
+                    (block as Record<string, unknown>).type === "text" &&
+                    "text" in block &&
+                    typeof (block as Record<string, unknown>).text === "string"
+                  ) {
+                    texts.push((block as Record<string, unknown>).text as string);
+                  }
                 }
               }
             }
-          }
 
-          const MIN_LEN = 10;
-          const MAX_CHUNK_LEN = 6000;
-          const MAX_CHUNKS_PER_SESSION = 3;
-          const sanitized = texts
-            .filter((t): t is string => typeof t === "string" && t.trim().length >= MIN_LEN)
-            .map((t) => t.trim())
-            .filter(
-              (t) =>
-                !t.includes("<relevant-memories>") &&
-                !(t.startsWith("<") && t.includes("</")),
-            );
-          if (sanitized.length === 0) return;
+            const MIN_LEN = 10;
+            const MAX_CHUNK_LEN = 6000;
+            const MAX_CHUNKS_PER_SESSION = 3;
+            const sanitized = texts
+              .filter((t): t is string => typeof t === "string" && t.trim().length >= MIN_LEN)
+              .map((t) => t.trim())
+              .filter(
+                (t) =>
+                  !t.includes("<relevant-memories>") &&
+                  !(t.startsWith("<") && t.includes("</")),
+              );
+            if (sanitized.length === 0) return;
 
-          const combined = sanitized.join("\n\n");
-          const chunks: string[] = [];
-          for (let i = 0; i < combined.length; i += MAX_CHUNK_LEN) {
-            if (chunks.length >= MAX_CHUNKS_PER_SESSION) break;
-            chunks.push(combined.slice(i, i + MAX_CHUNK_LEN));
-          }
+            const combined = sanitized.join("\n\n");
+            const chunks: string[] = [];
+            for (let i = 0; i < combined.length; i += MAX_CHUNK_LEN) {
+              if (chunks.length >= MAX_CHUNKS_PER_SESSION) break;
+              chunks.push(combined.slice(i, i + MAX_CHUNK_LEN));
+            }
 
-          let stored = 0;
-          for (const chunk of chunks) {
-            const created = await agentClient.add(chunk, { infer: cfg.inferOnAdd });
-            stored += created.length;
+            let stored = 0;
+            for (const chunk of chunks) {
+              const created = await agentClient.add(chunk, { infer: cfg.inferOnAdd });
+              stored += created.length;
+            }
+            if (stored > 0) {
+              api.logger.info(
+                `memory-powermem: auto-captured ${stored} memories from conversation`,
+              );
+            }
+          } catch (err) {
+            api.logger.warn(`memory-powermem: capture failed: ${String(err)}`);
           }
-          if (stored > 0) {
-            api.logger.info(`memory-powermem: auto-captured ${stored} memories from conversation`);
-          }
-        } catch (err) {
-          api.logger.warn(`memory-powermem: capture failed: ${String(err)}`);
-        }
+        })();
       });
     }
 
     if (cfg.autoExperience) {
-      api.on("agent_end", async (...args: unknown[]) => {
+      api.on("agent_end", (...args: unknown[]) => {
         const [event, ctx] = args as [unknown, ToolContext];
-        const agentClient = getClientForAgent(ctx?.agentId);
         const e = event as { messages: unknown[]; success: boolean; error?: string };
         if (!e.success || !e.messages || e.messages.length === 0) {
           return;
         }
-        try {
-          const tools = extractToolNames(e.messages);
-          const experiences = await extractExperiencesWithLlm(e.messages);
-          if (experiences.length === 0) return;
-          for (const exp of experiences) {
-            await agentClient.add(exp, {
-              infer: false,
-              metadata: {
-                type: "experience",
-                source: "auto",
-                tools,
-              },
-            });
+        const messages = e.messages;
+        const agentId = ctx?.agentId;
+
+        void (async () => {
+          try {
+            const agentClient = getClientForAgent(agentId);
+            const tools = extractToolNames(messages);
+            const experiences = await extractExperiencesWithLlm(messages);
+            if (experiences.length === 0) return;
+            for (const exp of experiences) {
+              await agentClient.add(exp, {
+                infer: false,
+                metadata: {
+                  type: "experience",
+                  source: "auto",
+                  tools,
+                },
+              });
+            }
+            api.logger.info(`memory-powermem: auto-experience stored (${experiences.length})`);
+          } catch (err) {
+            api.logger.warn(`memory-powermem: auto-experience failed: ${String(err)}`);
           }
-          api.logger.info(`memory-powermem: auto-experience stored (${experiences.length})`);
-        } catch (err) {
-          api.logger.warn(`memory-powermem: auto-experience failed: ${String(err)}`);
-        }
+        })();
       });
     }
 

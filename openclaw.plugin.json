@@ -26,7 +26,7 @@
     },
     "requestTimeoutMs": {
       "label": "Request timeout (ms)",
-      "placeholder": "10000",
+      "placeholder": "30000",
       "advanced": true,
       "help": "Abort HTTP/CLI requests after this many milliseconds (0 = no timeout)"
     },
