@@ -4,6 +4,7 @@
  */
 
 import type { PowerMemConfig } from "./config.js";
+import { fetchWithTimeout } from "./http.js";
 
 export type PowerMemSearchResult = {
   /** String IDs are used by powermem-ts; HTTP API may return numeric ids. */
@@ -60,6 +61,7 @@ export type PowerMemClientOptions = {
   apiKey?: string;
   userId?: string;
   agentId?: string;
+  timeoutMs?: number;
 };
 
 export class PowerMemClient {
@@ -67,12 +69,14 @@ export class PowerMemClient {
   private readonly apiKey?: string;
   private readonly userId: string;
   private readonly agentId: string;
+  private readonly timeoutMs: number;
 
   constructor(options: PowerMemClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;
     this.userId = options.userId ?? "openclaw-user";
     this.agentId = options.agentId ?? "openclaw-agent";
+    this.timeoutMs = options.timeoutMs ?? 10000;
   }
 
   static fromConfig(cfg: PowerMemConfig, userId: string, agentId: string): PowerMemClient {
@@ -81,6 +85,7 @@ export class PowerMemClient {
       apiKey: cfg.apiKey,
       userId,
       agentId,
+      timeoutMs: cfg.requestTimeoutMs,
     });
   }
 
@@ -91,11 +96,11 @@ export class PowerMemClient {
     parseJson = true,
   ): Promise<T> {
     const url = buildUrl(this.baseUrl, path);
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method,
       headers: buildHeaders(this.apiKey),
       body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    }, this.timeoutMs);
     return handleResponse<T>(res, parseJson);
   }
 

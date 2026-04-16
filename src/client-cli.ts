@@ -18,6 +18,7 @@ export type PowerMemCLIClientOptions = {
   resolvedEnvFile?: string;
   userId: string;
   agentId: string;
+  timeoutMs?: number;
   /**
    * Vars merged into the subprocess environment (after process.env).
    * OpenClaw + SQLite defaults; cached for the plugin process lifetime.
@@ -101,6 +102,7 @@ export class PowerMemCLIClient {
   private readonly userId: string;
   private readonly agentId: string;
   private readonly buildProcessEnv?: () => Promise<Record<string, string>>;
+  private readonly timeoutMs: number;
   private injectPromise: Promise<Record<string, string>> | null = null;
 
   constructor(options: PowerMemCLIClientOptions) {
@@ -109,6 +111,7 @@ export class PowerMemCLIClient {
     this.userId = options.userId;
     this.agentId = options.agentId;
     this.buildProcessEnv = options.buildProcessEnv;
+    this.timeoutMs = options.timeoutMs ?? 60000;
   }
 
   static fromConfig(
@@ -125,6 +128,7 @@ export class PowerMemCLIClient {
       userId,
       agentId,
       buildProcessEnv: extras?.buildProcessEnv,
+      timeoutMs: cfg.requestTimeoutMs,
     });
   }
 
@@ -150,6 +154,7 @@ export class PowerMemCLIClient {
         encoding: "utf-8",
         maxBuffer: DEFAULT_MAX_BUFFER,
         env,
+        timeout: this.timeoutMs > 0 ? this.timeoutMs : undefined,
       });
       return out;
     } catch (err) {

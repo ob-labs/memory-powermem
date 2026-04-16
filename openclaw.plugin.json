@@ -24,6 +24,12 @@
       "advanced": true,
       "help": "HTTP mode: v1 (default) or v2. v2 enables per-request config and agent memory APIs."
     },
+    "requestTimeoutMs": {
+      "label": "Request timeout (ms)",
+      "placeholder": "10000",
+      "advanced": true,
+      "help": "Abort HTTP/CLI requests after this many milliseconds (0 = no timeout)"
+    },
     "requestConfig": {
       "label": "Request config (v2)",
       "placeholder": "",
@@ -167,6 +173,7 @@
       "baseUrl": { "type": "string" },
       "apiKey": { "type": "string" },
       "httpApiVersion": { "type": "string", "enum": ["v1", "v2"] },
+      "requestTimeoutMs": { "type": "number" },
       "requestConfig": { "type": "object" },
       "envFile": { "type": "string" },
       "pmemPath": { "type": "string" },

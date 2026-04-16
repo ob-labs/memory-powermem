@@ -4,6 +4,7 @@
  */
 
 import type { PowerMemConfig } from "./config.js";
+import { fetchWithTimeout } from "./http.js";
 import type { PowerMemAddResult, PowerMemSearchResult } from "./client.js";
 
 export type PowermemRequestConfig = Record<string, unknown>;
@@ -20,6 +21,7 @@ export type PowerMemV2ClientOptions = {
   userId?: string;
   agentId?: string;
   requestConfig?: PowermemRequestConfig;
+  timeoutMs?: number;
 };
 
 function buildUrl(baseUrl: string, path: string): string {
@@ -72,6 +74,7 @@ export class PowerMemV2Client {
   private readonly userId: string;
   private readonly agentId: string;
   private readonly requestConfig?: PowermemRequestConfig;
+  private readonly timeoutMs: number;
 
   constructor(options: PowerMemV2ClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
@@ -79,6 +82,7 @@ export class PowerMemV2Client {
     this.userId = options.userId ?? "openclaw-user";
     this.agentId = options.agentId ?? "openclaw-agent";
     this.requestConfig = options.requestConfig;
+    this.timeoutMs = options.timeoutMs ?? 10000;
   }
 
   static fromConfig(cfg: PowerMemConfig, userId: string, agentId: string): PowerMemV2Client {
@@ -88,6 +92,7 @@ export class PowerMemV2Client {
       userId,
       agentId,
       requestConfig: cfg.requestConfig,
+      timeoutMs: cfg.requestTimeoutMs,
     });
   }
 
@@ -98,11 +103,11 @@ export class PowerMemV2Client {
     parseJson = true,
   ): Promise<T> {
     const url = buildUrl(this.baseUrl, path);
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method,
       headers: buildHeaders(this.apiKey),
       body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    }, this.timeoutMs);
     return handleResponse<T>(res, parseJson);
   }
 
