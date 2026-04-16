@@ -769,7 +769,24 @@ const memoryPlugin = {
               targetAgentId: string;
               memoryIds?: number[];
             };
-            const source = fromAgentId ?? resolveAgentIdentity(ctx?.agentId).agentId;
+            const currentSource = resolveAgentIdentity(ctx?.agentId).agentId;
+            if (fromAgentId && fromAgentId !== currentSource) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text:
+                      "fromAgentId does not match the current agent identity. " +
+                      "Leave fromAgentId empty to use current agent automatically.",
+                  },
+                ],
+                details: {
+                  error: "from_agent_mismatch",
+                  currentAgentId: currentSource,
+                },
+              };
+            }
+            const source = fromAgentId ?? currentSource;
             try {
               const result = await agentClient.agentMemoryShare(source, targetAgentId, memoryIds);
               const shared = result?.shared_count ?? 0;
