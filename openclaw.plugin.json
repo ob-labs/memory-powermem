@@ -66,6 +66,10 @@
       "advanced": true,
       "help": "Min score (0–1); memories below are filtered out"
     },
+    "walCapture": {
+      "label": "WAL Capture",
+      "help": "Incrementally capture key facts during conversations to prevent loss on crash/compaction"
+    },
     "autoCapture": {
       "label": "Auto-Capture",
       "help": "Automatically store important information from conversations"
@@ -170,6 +174,7 @@
       "agentId": { "type": "string" },
       "recallLimit": { "type": "number" },
       "recallScoreThreshold": { "type": "number" },
+      "walCapture": { "type": "boolean" },
       "autoCapture": { "type": "boolean" },
       "autoRecall": { "type": "boolean" },
       "autoExperience": { "type": "boolean" },

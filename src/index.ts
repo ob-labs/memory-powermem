@@ -32,6 +32,7 @@ import { DualWriteClient } from "./dual-write-client.js";
 import { createLocalEmbeddingFactory } from "./local-embedding.js";
 import { LocalSqliteStore } from "./local-sqlite.js";
 import { callLlm } from "./llm.js";
+import { WalSession, walCapture as walCaptureCore } from "./wal.js";
 import {
   buildDefaultSqlitePowermemEnv,
   buildPowermemCliProcessEnv,
@@ -292,6 +293,7 @@ const memoryPlugin = {
     };
 
     const clientCache = new Map<string, MemoryClient & AgentMemoryClient>();
+    const walSession = new WalSession();
 
     const buildHttpClient = (identity: AgentIdentity) =>
       cfg.httpApiVersion === "v2"
@@ -914,12 +916,22 @@ const memoryPlugin = {
           .description("Search memories")
           .argument("<query>", "Search query")
           .option("--limit <n>", "Max results", "5")
+          .option("--score-threshold <n>", "Min score (0-1) to keep")
           .action(async (...args: unknown[]) => {
             const query = String(args[0] ?? "");
-            const opts = (args[1] ?? {}) as { limit?: string };
+            const opts = (args[1] ?? {}) as { limit?: string; scoreThreshold?: string };
             const limit = parseInt(opts.limit ?? "5", 10);
+            const rawThreshold = opts.scoreThreshold?.trim();
+            const threshold =
+              rawThreshold && Number.isFinite(Number(rawThreshold))
+                ? Math.max(0, Math.min(1, Number(rawThreshold)))
+                : undefined;
             const results = await client.search(query, limit);
-            console.log(JSON.stringify(results, null, 2));
+            const filtered =
+              threshold === undefined
+                ? results
+                : results.filter((r) => (r.score ?? 0) >= threshold);
+            console.log(JSON.stringify(filtered, null, 2));
           });
 
         ltm
@@ -1121,6 +1133,19 @@ const memoryPlugin = {
       return { memories, experiences };
     }
 
+    async function walCapture(prompt: string, sessionKey: string, ctxAgentId?: string): Promise<void> {
+      const agentClient = getClientForAgent(ctxAgentId);
+      await walCaptureCore(prompt, sessionKey, walSession, {
+        callLlm: (p, opts) => callLlm(api, p, opts),
+        store: async (content, metadata) => {
+          const created = await agentClient.add(content, { infer: false, metadata });
+          const id = created[0]?.memory_id;
+          return { id };
+        },
+        logger: api.logger,
+      });
+    }
+
     if (cfg.autoRecall) {
       api.on("before_agent_start", async (...args: unknown[]) => {
         const [event, ctx] = args as [unknown, ToolContext];
@@ -1183,6 +1208,22 @@ const memoryPlugin = {
           api.logger.warn(`memory-powermem: recall failed: ${String(err)}`);
           return { prependSystemContext: MEMORY_RECALL_GUIDANCE };
         }
+      });
+    }
+
+    if (cfg.walCapture) {
+      api.on("before_agent_start", async (...args: unknown[]) => {
+        const [event, ctx] = args as [unknown, ToolContext & { sessionKey?: string }];
+        const e = event as { prompt?: string; messages?: unknown[] };
+        const prompt =
+          typeof e.prompt === "string" && e.prompt.trim().length >= 5
+            ? e.prompt.trim()
+            : lastUserMessageText(e.messages);
+        if (!prompt) return;
+        const sessionKey = ctx?.sessionKey ?? "fallback";
+        walCapture(prompt, sessionKey, ctx?.agentId).catch((err) => {
+          api.logger.warn(`memory-powermem: wal capture failed: ${String(err)}`);
+        });
       });
     }
 
@@ -1283,6 +1324,14 @@ const memoryPlugin = {
         } catch (err) {
           api.logger.warn(`memory-powermem: auto-experience failed: ${String(err)}`);
         }
+      });
+    }
+
+    if (cfg.walCapture) {
+      api.on("session_end", (...args: unknown[]) => {
+        const [, ctx] = args as [unknown, ToolContext & { sessionKey?: string }];
+        const key = ctx?.sessionKey ?? "fallback";
+        walSession.clear(key);
       });
     }
 

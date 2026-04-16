@@ -55,6 +55,8 @@ export type PowerMemConfig = {
   recallLimit?: number;
   /** Min score (0–1) for recall; memories below are filtered. Default 0. */
   recallScoreThreshold?: number;
+  /** Incremental write-ahead capture during conversations. */
+  walCapture: boolean;
   autoCapture: boolean;
   autoRecall: boolean;
   autoExperience: boolean;
@@ -97,6 +99,7 @@ const ALLOWED_KEYS = [
   "agentId",
   "recallLimit",
   "recallScoreThreshold",
+  "walCapture",
   "autoCapture",
   "autoRecall",
   "autoExperience",
@@ -237,6 +240,7 @@ export const powerMemConfigSchema = {
           : undefined,
       recallLimit: toRecallLimit(cfg.recallLimit),
       recallScoreThreshold: toRecallScoreThreshold(cfg.recallScoreThreshold),
+      walCapture: cfg.walCapture !== false,
       autoCapture: cfg.autoCapture !== false,
       autoRecall: cfg.autoRecall !== false,
       autoExperience: cfg.autoExperience !== false,
@@ -348,6 +352,7 @@ export const DEFAULT_PLUGIN_CONFIG: PowerMemConfig = {
   envFile: undefined,
   pmemPath: DEFAULT_PMEM_PATH,
   useOpenClawModel: true,
+  walCapture: true,
   autoCapture: true,
   autoRecall: true,
   autoExperience: true,
