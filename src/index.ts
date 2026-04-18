@@ -555,6 +555,7 @@ const memoryPlugin = {
           ),
         }),
         async execute(_toolCallId: string, params: Record<string, unknown>) {
+          const storeStartedAt = perfNow();
           const agentClient = getClientForAgent(ctx?.agentId);
           const { text, importance = 0.7 } = params as {
             text: string;
@@ -562,9 +563,16 @@ const memoryPlugin = {
           };
 
           try {
+            const addStartedAt = perfNow();
             const created = await agentClient.add(text, {
               infer: cfg.inferOnAdd,
               metadata: { importance },
+            });
+            perfLog("memory_store.add", addStartedAt, {
+              agent: resolveAgentIdentity(ctx?.agentId).agentId,
+              textLen: text.length,
+              infer: cfg.inferOnAdd,
+              createdCount: created.length,
             });
 
             if (created.length === 0) {
@@ -599,6 +607,11 @@ const memoryPlugin = {
               ],
               details: { error: String(err) },
             };
+          } finally {
+            perfLog("memory_store.total", storeStartedAt, {
+              agent: resolveAgentIdentity(ctx?.agentId).agentId,
+              textLen: text.length,
+            });
           }
         },
       }),
@@ -615,12 +628,18 @@ const memoryPlugin = {
           memoryId: Type.Optional(Type.String({ description: "Specific memory ID" })),
         }),
         async execute(_toolCallId: string, params: Record<string, unknown>) {
+          const forgetStartedAt = perfNow();
           const agentClient = getClientForAgent(ctx?.agentId);
           const { query, memoryId } = params as { query?: string; memoryId?: string };
 
           try {
             if (memoryId) {
+              const deleteStartedAt = perfNow();
               await agentClient.delete(memoryId);
+              perfLog("memory_forget.delete_by_id", deleteStartedAt, {
+                agent: resolveAgentIdentity(ctx?.agentId).agentId,
+                memoryId,
+              });
               return {
                 content: [{ type: "text", text: `Memory ${memoryId} forgotten.` }],
                 details: { action: "deleted", id: memoryId },
@@ -628,7 +647,13 @@ const memoryPlugin = {
             }
 
             if (query) {
+              const searchStartedAt = perfNow();
               const results = await agentClient.search(query, 5);
+              perfLog("memory_forget.search", searchStartedAt, {
+                agent: resolveAgentIdentity(ctx?.agentId).agentId,
+                queryLen: query.length,
+                candidateCount: results.length,
+              });
               if (results.length === 0) {
                 return {
                   content: [{ type: "text", text: "No matching memories found." }],
@@ -636,7 +661,13 @@ const memoryPlugin = {
                 };
               }
               if (results.length === 1 && (results[0].score ?? 0) > 0.9) {
+                const deleteTopStartedAt = perfNow();
                 await agentClient.delete(results[0].memory_id);
+                perfLog("memory_forget.delete_top_hit", deleteTopStartedAt, {
+                  agent: resolveAgentIdentity(ctx?.agentId).agentId,
+                  memoryId: String(results[0].memory_id),
+                  score: results[0].score,
+                });
                 return {
                   content: [
                     {
@@ -686,6 +717,12 @@ const memoryPlugin = {
               ],
               details: { error: String(err) },
             };
+          } finally {
+            perfLog("memory_forget.total", forgetStartedAt, {
+              agent: resolveAgentIdentity(ctx?.agentId).agentId,
+              hasQuery: Boolean(query),
+              hasMemoryId: Boolean(memoryId),
+            });
           }
         },
       }),
@@ -705,6 +742,7 @@ const memoryPlugin = {
           tags: Type.Optional(Type.Array(Type.String(), { description: "Optional tags" })),
         }),
         async execute(_toolCallId: string, params: Record<string, unknown>) {
+          const expStoreStartedAt = perfNow();
           const agentClient = getClientForAgent(ctx?.agentId);
           const { text, importance = 0.7, tags } = params as {
             text: string;
@@ -712,9 +750,15 @@ const memoryPlugin = {
             tags?: string[];
           };
           try {
+            const addStartedAt = perfNow();
             const created = await agentClient.add(text, {
               infer: false,
               metadata: { type: "experience", importance, tags },
+            });
+            perfLog("experience_store.add", addStartedAt, {
+              agent: resolveAgentIdentity(ctx?.agentId).agentId,
+              textLen: text.length,
+              createdCount: created.length,
             });
             const id = created[0]?.memory_id ? String(created[0].memory_id) : "unknown";
             return {
@@ -732,6 +776,11 @@ const memoryPlugin = {
               ],
               details: { error: String(err) },
             };
+          } finally {
+            perfLog("experience_store.total", expStoreStartedAt, {
+              agent: resolveAgentIdentity(ctx?.agentId).agentId,
+              textLen: text.length,
+            });
           }
         },
       }),
@@ -1197,6 +1246,7 @@ const memoryPlugin = {
           .option("--limit <n>", "Max results", "5")
           .option("--score-threshold <n>", "Min score (0-1) to keep")
           .action(async (...args: unknown[]) => {
+            const cliSearchStartedAt = perfNow();
             const query = String(args[0] ?? "");
             const opts = (args[1] ?? {}) as { limit?: string; scoreThreshold?: string };
             const limit = parseInt(opts.limit ?? "5", 10);
@@ -1205,11 +1255,20 @@ const memoryPlugin = {
               rawThreshold && Number.isFinite(Number(rawThreshold))
                 ? Math.max(0, Math.min(1, Number(rawThreshold)))
                 : undefined;
+            const searchStartedAt = perfNow();
             const results = await client.search(query, limit);
             const filtered =
               threshold === undefined
                 ? results
                 : results.filter((r) => (r.score ?? 0) >= threshold);
+            perfLog("cli.ltm.search", cliSearchStartedAt, {
+              queryLen: query.length,
+              limit,
+              threshold: threshold ?? null,
+              resultCount: results.length,
+              filteredCount: filtered.length,
+              upstreamMs: perfNow() - searchStartedAt,
+            });
             console.log(JSON.stringify(filtered, null, 2));
           });
 
@@ -1217,8 +1276,14 @@ const memoryPlugin = {
           .command("health")
           .description("Check PowerMem server health")
           .action(async () => {
+            const cliHealthStartedAt = perfNow();
             try {
+              const healthStartedAt = perfNow();
               const h = await client.health();
+              perfLog("cli.ltm.health", cliHealthStartedAt, {
+                status: h.status,
+                upstreamMs: perfNow() - healthStartedAt,
+              });
               console.log("PowerMem:", h.status);
               if (h.status !== "healthy" && "error" in h && h.error) {
                 console.error(h.error);
@@ -1226,6 +1291,8 @@ const memoryPlugin = {
             } catch (err) {
               console.error("PowerMem health check failed:", err);
               process.exitCode = 1;
+            } finally {
+              perfLog("cli.ltm.health.total", cliHealthStartedAt);
             }
           });
 
@@ -1234,9 +1301,17 @@ const memoryPlugin = {
           .description("Manually add a memory (for testing or one-off storage)")
           .argument("<text>", "Content to store")
           .action(async (...args: unknown[]) => {
+            const cliAddStartedAt = perfNow();
             const text = String(args[0] ?? "");
             try {
+              const addStartedAt = perfNow();
               const created = await client.add(text.trim(), { infer: cfg.inferOnAdd });
+              perfLog("cli.ltm.add", cliAddStartedAt, {
+                textLen: text.trim().length,
+                infer: cfg.inferOnAdd,
+                createdCount: created.length,
+                upstreamMs: perfNow() - addStartedAt,
+              });
               if (created.length === 0) {
                 console.log("Stored (no inferred items).");
               } else {
@@ -1245,6 +1320,8 @@ const memoryPlugin = {
             } catch (err) {
               console.error("PowerMem add failed:", err);
               process.exitCode = 1;
+            } finally {
+              perfLog("cli.ltm.add.total", cliAddStartedAt, { textLen: text.trim().length });
             }
           });
       },

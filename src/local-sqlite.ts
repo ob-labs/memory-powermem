@@ -29,6 +29,7 @@ export type PendingRow = {
   infer: boolean;
   queued_at: string;
   retries: number;
+  last_error: string | null;
 };
 
 export type LocalVectorConfig = {
@@ -86,6 +87,7 @@ export class LocalSqliteStore {
   private logger?: Logger;
   private ftsEnabled = false;
   private hasNextRetryAt = true;
+  private hasLastError = true;
   private vector = {
     enabled: false,
     available: false,
@@ -131,7 +133,8 @@ export class LocalSqliteStore {
         infer INTEGER DEFAULT 1,
         queued_at TEXT NOT NULL,
         retries INTEGER DEFAULT 0,
-        next_retry_at TEXT
+        next_retry_at TEXT,
+        last_error TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_memories_user_agent
@@ -197,6 +200,17 @@ export class LocalSqliteStore {
         this.hasNextRetryAt = true;
       } else {
         this.hasNextRetryAt = false;
+      }
+    }
+    try {
+      this.db.exec(`ALTER TABLE pending_writes ADD COLUMN last_error TEXT`);
+      this.hasLastError = true;
+    } catch (err) {
+      const msg = String(err ?? "");
+      if (msg.includes("duplicate column name") || msg.includes("duplicate column")) {
+        this.hasLastError = true;
+      } else {
+        this.hasLastError = false;
       }
     }
   }
@@ -629,8 +643,8 @@ export class LocalSqliteStore {
     infer: boolean;
   }): void {
     const stmt = this.db.prepare(`
-      INSERT INTO pending_writes (local_memory_id, content, metadata, user_id, agent_id, infer, queued_at, retries, next_retry_at)
-      VALUES (@local_memory_id, @content, @metadata, @user_id, @agent_id, @infer, @queued_at, 0, @next_retry_at)
+      INSERT INTO pending_writes (local_memory_id, content, metadata, user_id, agent_id, infer, queued_at, retries, next_retry_at, last_error)
+      VALUES (@local_memory_id, @content, @metadata, @user_id, @agent_id, @infer, @queued_at, 0, @next_retry_at, NULL)
     `);
     stmt.run({
       local_memory_id: params.localMemoryId ?? null,
@@ -649,8 +663,9 @@ export class LocalSqliteStore {
       readyOnly && this.hasNextRetryAt
         ? "WHERE next_retry_at IS NULL OR next_retry_at <= ?"
         : "";
+    const lastErrorCol = this.hasLastError ? "last_error" : "NULL as last_error";
     const stmt = this.db.prepare(`
-      SELECT id, local_memory_id, content, metadata, user_id, agent_id, infer, queued_at, retries
+      SELECT id, local_memory_id, content, metadata, user_id, agent_id, infer, queued_at, retries, ${lastErrorCol}
       FROM pending_writes
       ${readyClause}
       ORDER BY id ASC
@@ -668,6 +683,7 @@ export class LocalSqliteStore {
       infer: number;
       queued_at: string;
       retries: number;
+      last_error: string | null;
     }>;
     return rows.map((row) => ({
       id: row.id,
@@ -679,6 +695,7 @@ export class LocalSqliteStore {
       infer: row.infer !== 0,
       queued_at: row.queued_at,
       retries: row.retries,
+      last_error: row.last_error ?? null,
     }));
   }
 
@@ -689,9 +706,16 @@ export class LocalSqliteStore {
     stmt.run(...ids);
   }
 
-  scheduleRetries(ids: number[], nextRetryAt: string): void {
+  scheduleRetries(ids: number[], nextRetryAt: string, lastError?: string): void {
     if (ids.length === 0) return;
     const placeholders = ids.map(() => "?").join(", ");
+    if (this.hasLastError) {
+      const stmt = this.db.prepare(
+        `UPDATE pending_writes SET retries = retries + 1, next_retry_at = ?, last_error = ? WHERE id IN (${placeholders})`,
+      );
+      stmt.run(nextRetryAt, lastError ?? null, ...ids);
+      return;
+    }
     const stmt = this.db.prepare(
       `UPDATE pending_writes SET retries = retries + 1, next_retry_at = ? WHERE id IN (${placeholders})`,
     );

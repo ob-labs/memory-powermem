@@ -280,7 +280,10 @@ export class DualWriteClient {
     try {
       for (const row of pending) {
         if (this.syncMaxRetries > 0 && row.retries >= this.syncMaxRetries) {
-          this.logger?.warn?.(`dual-write: skip pending id=${row.id}, retries=${row.retries}`);
+          const reason = row.last_error ? `, reason=${row.last_error}` : "";
+          this.logger?.warn?.(
+            `dual-write: skip pending id=${row.id}, retries=${row.retries}${reason}`,
+          );
           continue;
         }
         try {
@@ -295,13 +298,18 @@ export class DualWriteClient {
             }
           }
           synced.push(row.id);
-        } catch {
+        } catch (err) {
           const delay = Math.min(
             this.syncMaxDelayMs,
             this.syncBaseDelayMs * Math.pow(2, row.retries),
           );
           const nextRetryAt = new Date(Date.now() + delay).toISOString();
-          this.local.scheduleRetries([row.id], nextRetryAt);
+          const reasonRaw = err instanceof Error ? err.message : String(err);
+          const reason = reasonRaw.slice(0, 500);
+          this.local.scheduleRetries([row.id], nextRetryAt, reason);
+          this.logger?.warn?.(
+            `dual-write: pending id=${row.id} retry scheduled at ${nextRetryAt}, reason=${reason}`,
+          );
           break;
         }
       }

@@ -96,6 +96,17 @@
       "label": "Infer on Add",
       "help": "Use PowerMem intelligent extraction when adding (infer=true)"
     },
+    "debugPerfLog": {
+      "label": "Debug performance logs",
+      "advanced": true,
+      "help": "Enable slow-path performance logs for key memory operations."
+    },
+    "perfSlowMs": {
+      "label": "Perf slow threshold (ms)",
+      "advanced": true,
+      "placeholder": "800",
+      "help": "Only log performance entries slower than this threshold."
+    },
     "dualWrite": {
       "label": "Dual write (HTTP + SQLite)",
       "advanced": true,
@@ -187,6 +198,8 @@
       "autoExperience": { "type": "boolean" },
       "experienceRecall": { "type": "boolean" },
       "inferOnAdd": { "type": "boolean" },
+      "debugPerfLog": { "type": "boolean" },
+      "perfSlowMs": { "type": "number" },
       "dualWrite": { "type": "boolean" },
       "localDbPath": { "type": "string" },
       "localUserId": { "type": "string" },
