@@ -224,6 +224,17 @@ const memoryPlugin = {
         ? { ...DEFAULT_PLUGIN_CONFIG, ...raw }
         : DEFAULT_PLUGIN_CONFIG;
     const cfg = powerMemConfigSchema.parse(toParse) as PowerMemConfig;
+    const perfEnabled = cfg.debugPerfLog === true;
+    const perfSlowMs = Math.max(1, cfg.perfSlowMs ?? 800);
+    const perfNow = () => Date.now();
+    const perfLog = (stage: string, startAt: number, extra?: Record<string, unknown>) => {
+      if (!perfEnabled) return;
+      const elapsedMs = perfNow() - startAt;
+      if (elapsedMs < perfSlowMs) return;
+      const detail =
+        extra && Object.keys(extra).length > 0 ? ` ${JSON.stringify(extra)}` : "";
+      api.logger.info(`memory-powermem: perf ${stage} ${elapsedMs}ms${detail}`);
+    };
     const stateDir = resolveOpenClawStateDir(gw);
     const { userId, agentId } = resolveIdentityIds(cfg, stateDir, api.logger);
     const buildProcessEnv =
@@ -299,6 +310,8 @@ const memoryPlugin = {
 
     const clientCache = new Map<string, MemoryClient & AgentMemoryClient>();
     const walSession = new WalSession();
+    let inFlightAutoCapture = 0;
+    let inFlightAutoExperience = 0;
 
     const buildHttpClient = (identity: AgentIdentity) =>
       cfg.httpApiVersion === "v2"
@@ -357,6 +370,9 @@ const memoryPlugin = {
     api.logger.info(
       `memory-powermem: plugin registered (mode: ${cfg.mode}, ${modeLabel}, user: ${userId}, agent: ${agentId})`,
     );
+    if (perfEnabled) {
+      api.logger.info(`memory-powermem: perf logging enabled (slow >= ${perfSlowMs}ms)`);
+    }
 
     // ========================================================================
     // Tools
@@ -378,7 +394,8 @@ const memoryPlugin = {
           ),
         }),
         async execute(_toolCallId: string, params: Record<string, unknown>) {
-          const agentClient = getClientForAgent(ctx?.agentId);
+          const recallStartedAt = perfNow();
+          const agentClient = getClientForAgent(ctx?.agentId) as MemoryClient & AgentMemoryClient;
           const limit =
             typeof (params as { limit?: number }).limit === "number"
               ? Math.max(1, Math.min(100, Math.floor((params as { limit: number }).limit)))
@@ -391,22 +408,99 @@ const memoryPlugin = {
 
           try {
             const requestLimit = Math.min(100, Math.max(limit * 2, limit + 10));
-            const raw = await agentClient.search(query, requestLimit);
-            const results = raw
+            const primaryStartedAt = perfNow();
+            const primary = await agentClient.search(query, requestLimit);
+            perfLog("memory_recall.search", primaryStartedAt, {
+              agent: resolveAgentIdentity(ctx?.agentId).agentId,
+              queryLen: query.length,
+              requestLimit,
+              resultCount: primary.length,
+            });
+            let merged: PowerMemSearchResult[] = [...primary];
+            let sharedFetched = 0;
+
+            if (agentClient.agentMemoryShared) {
+              const targetAgentId = resolveAgentIdentity(ctx?.agentId).agentId;
+              try {
+                const sharedStartedAt = perfNow();
+                const sharedRows = await agentClient.agentMemoryShared(targetAgentId, requestLimit, 0);
+                perfLog("memory_recall.shared_fetch", sharedStartedAt, {
+                  agent: targetAgentId,
+                  requestLimit,
+                  sharedRowCount: sharedRows.length,
+                });
+                const normalizedQuery = query.trim().toLowerCase();
+                const sharedAsSearch: PowerMemSearchResult[] = [];
+                for (let idx = 0; idx < sharedRows.length; idx++) {
+                  const record = sharedRows[idx] as Record<string, unknown>;
+                  const content = typeof record.content === "string" ? record.content.trim() : "";
+                  if (!content) continue;
+                  const rawMetadata = record.metadata;
+                  const metadata =
+                    rawMetadata && typeof rawMetadata === "object" && !Array.isArray(rawMetadata)
+                      ? ({ ...(rawMetadata as Record<string, unknown>) } as Record<string, unknown>)
+                      : {};
+                  metadata.shared = true;
+                  metadata.source = "shared";
+                  const id = record.memory_id ?? record.id ?? `shared-${idx}`;
+                  const hasQueryHit =
+                    normalizedQuery.length > 0 && content.toLowerCase().includes(normalizedQuery);
+                  const score = hasQueryHit ? 0.92 : 0.55;
+                  sharedAsSearch.push({
+                    memory_id: String(id),
+                    content,
+                    score,
+                    metadata,
+                  });
+                }
+                sharedFetched = sharedAsSearch.length;
+                merged = merged.concat(sharedAsSearch);
+              } catch (err) {
+                api.logger.warn(`memory-powermem: shared recall fallback failed: ${String(err)}`);
+              }
+            }
+
+            const deduped = new Map<string, PowerMemSearchResult>();
+            for (const item of merged) {
+              const keyBase =
+                item.memory_id !== undefined && item.memory_id !== null
+                  ? String(item.memory_id)
+                  : item.content;
+              const key = keyBase.trim() ? keyBase : item.content;
+              const existing = deduped.get(key);
+              if (!existing || (existing.score ?? 0) < (item.score ?? 0)) {
+                deduped.set(key, item);
+              }
+            }
+
+            const results = Array.from(deduped.values())
+              .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
               .filter((r) => (r.score ?? 0) >= scoreThreshold)
               .slice(0, limit);
+            perfLog("memory_recall.total", recallStartedAt, {
+              queryLen: query.length,
+              limit,
+              primaryCount: primary.length,
+              sharedCount: sharedFetched,
+              finalCount: results.length,
+            });
 
             if (results.length === 0) {
               return {
                 content: [{ type: "text", text: "No relevant memories found." }],
-                details: { count: 0 },
+                details: { count: 0, primaryCount: primary.length, sharedCount: sharedFetched },
               };
             }
 
             const text = results
               .map(
-                (r, i) =>
-                  `${i + 1}. ${r.content} (${((r.score ?? 0) * 100).toFixed(0)}%)`,
+                (r, i) => {
+                  const source =
+                    r.metadata && typeof r.metadata === "object" && (r.metadata as Record<string, unknown>).shared
+                      ? "shared"
+                      : "owned";
+                  return `${i + 1}. [${source}] ${r.content} (${((r.score ?? 0) * 100).toFixed(0)}%)`;
+                },
               )
               .join("\n");
 
@@ -414,13 +508,22 @@ const memoryPlugin = {
               id: String(r.memory_id),
               text: r.content,
               score: r.score,
+              source:
+                r.metadata && typeof r.metadata === "object" && (r.metadata as Record<string, unknown>).shared
+                  ? "shared"
+                  : "owned",
             }));
 
             return {
               content: [
                 { type: "text", text: `Found ${results.length} memories:\n\n${text}` },
               ],
-              details: { count: results.length, memories: sanitizedResults },
+              details: {
+                count: results.length,
+                primaryCount: primary.length,
+                sharedCount: sharedFetched,
+                memories: sanitizedResults,
+              },
             };
           } catch (err) {
             api.logger.warn(`memory-powermem: recall failed: ${String(err)}`);
@@ -1324,6 +1427,7 @@ const memoryPlugin = {
 
     if (cfg.autoRecall) {
       api.on("before_agent_start", async (...args: unknown[]) => {
+        const autoRecallStartedAt = perfNow();
         const [event, ctx] = args as [unknown, ToolContext];
         const agentClient = getClientForAgent(ctx?.agentId);
         const e = event as { prompt: string; messages?: unknown[] };
@@ -1340,7 +1444,14 @@ const memoryPlugin = {
 
         try {
           const requestLimit = Math.min(100, Math.max(recallLimit * 2, recallLimit + 10));
+          const searchStartedAt = perfNow();
           const raw = await agentClient.search(query, requestLimit);
+          perfLog("autoRecall.search", searchStartedAt, {
+            agent: resolveAgentIdentity(ctx?.agentId).agentId,
+            queryLen: query.length,
+            requestLimit,
+            resultCount: raw.length,
+          });
           const { memories, experiences } = splitExperiences(raw);
           const memoryResults = memories
             .filter((r) => (r.score ?? 0) >= scoreThreshold)
@@ -1375,6 +1486,11 @@ const memoryPlugin = {
               `memory-powermem: injecting ${memoryResults.length} memories and ${experienceResults.length} experiences into context`,
             );
           }
+          perfLog("autoRecall.total", autoRecallStartedAt, {
+            queryLen: query.length,
+            memoryCount: memoryResults.length,
+            experienceCount: experienceResults.length,
+          });
 
           return {
             prependSystemContext: MEMORY_RECALL_GUIDANCE,
@@ -1414,6 +1530,8 @@ const memoryPlugin = {
         const agentId = ctx?.agentId;
 
         void (async () => {
+          const autoCaptureStartedAt = perfNow();
+          inFlightAutoCapture += 1;
           try {
             const agentClient = getClientForAgent(agentId);
             const texts: string[] = [];
@@ -1465,7 +1583,14 @@ const memoryPlugin = {
 
             let stored = 0;
             for (const chunk of chunks) {
+              const addStartedAt = perfNow();
               const created = await agentClient.add(chunk, { infer: cfg.inferOnAdd });
+              perfLog("autoCapture.add_chunk", addStartedAt, {
+                agent: resolveAgentIdentity(agentId).agentId,
+                chunkLen: chunk.length,
+                createdCount: created.length,
+                inFlightAutoCapture,
+              });
               stored += created.length;
             }
             if (stored > 0) {
@@ -1473,8 +1598,17 @@ const memoryPlugin = {
                 `memory-powermem: auto-captured ${stored} memories from conversation`,
               );
             }
+            perfLog("autoCapture.total", autoCaptureStartedAt, {
+              agent: resolveAgentIdentity(agentId).agentId,
+              inputMessageCount: messages.length,
+              chunkCount: chunks.length,
+              stored,
+              inFlightAutoCapture,
+            });
           } catch (err) {
             api.logger.warn(`memory-powermem: capture failed: ${String(err)}`);
+          } finally {
+            inFlightAutoCapture = Math.max(0, inFlightAutoCapture - 1);
           }
         })();
       });
@@ -1491,12 +1625,23 @@ const memoryPlugin = {
         const agentId = ctx?.agentId;
 
         void (async () => {
+          const autoExperienceStartedAt = perfNow();
+          inFlightAutoExperience += 1;
           try {
             const agentClient = getClientForAgent(agentId);
             const tools = extractToolNames(messages);
+            const extractStartedAt = perfNow();
             const experiences = await extractExperiencesWithLlm(messages);
+            perfLog("autoExperience.extract_llm", extractStartedAt, {
+              agent: resolveAgentIdentity(agentId).agentId,
+              messageCount: messages.length,
+              toolCount: tools.length,
+              experienceCount: experiences.length,
+              inFlightAutoExperience,
+            });
             if (experiences.length === 0) return;
             for (const exp of experiences) {
+              const addStartedAt = perfNow();
               await agentClient.add(exp, {
                 infer: false,
                 metadata: {
@@ -1505,10 +1650,23 @@ const memoryPlugin = {
                   tools,
                 },
               });
+              perfLog("autoExperience.add", addStartedAt, {
+                agent: resolveAgentIdentity(agentId).agentId,
+                experienceLen: exp.length,
+                inFlightAutoExperience,
+              });
             }
             api.logger.info(`memory-powermem: auto-experience stored (${experiences.length})`);
+            perfLog("autoExperience.total", autoExperienceStartedAt, {
+              agent: resolveAgentIdentity(agentId).agentId,
+              messageCount: messages.length,
+              stored: experiences.length,
+              inFlightAutoExperience,
+            });
           } catch (err) {
             api.logger.warn(`memory-powermem: auto-experience failed: ${String(err)}`);
+          } finally {
+            inFlightAutoExperience = Math.max(0, inFlightAutoExperience - 1);
           }
         })();
       });

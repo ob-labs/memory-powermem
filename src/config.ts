@@ -63,6 +63,8 @@ export type PowerMemConfig = {
   autoExperience: boolean;
   experienceRecall: boolean;
   inferOnAdd: boolean;
+  debugPerfLog?: boolean;
+  perfSlowMs?: number;
   dualWrite?: boolean;
   localDbPath?: string;
   localUserId?: string;
@@ -107,6 +109,8 @@ const ALLOWED_KEYS = [
   "autoExperience",
   "experienceRecall",
   "inferOnAdd",
+  "debugPerfLog",
+  "perfSlowMs",
   "dualWrite",
   "localDbPath",
   "localUserId",
@@ -250,6 +254,8 @@ export const powerMemConfigSchema = {
       autoExperience: cfg.autoExperience !== false,
       experienceRecall: cfg.experienceRecall !== false,
       inferOnAdd: cfg.inferOnAdd !== false,
+      debugPerfLog: cfg.debugPerfLog === true,
+      perfSlowMs: toPositiveInt(cfg.perfSlowMs, 800, 1, 600000),
       dualWrite: cfg.dualWrite === true,
       localDbPath,
       localUserId:
@@ -363,6 +369,8 @@ export const DEFAULT_PLUGIN_CONFIG: PowerMemConfig = {
   autoExperience: true,
   experienceRecall: true,
   inferOnAdd: true,
+  debugPerfLog: false,
+  perfSlowMs: 800,
   dualWrite: false,
   localDbPath: undefined,
   localUserId: undefined,
