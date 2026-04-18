@@ -189,6 +189,11 @@ type AgentMemoryClient = {
   ) => Promise<Array<Record<string, unknown>>>;
 };
 
+type CrossScopeIdentity = {
+  userId: string;
+  agentId: string;
+};
+
 type ToolContext = { agentId?: string } | undefined;
 
 function resolveLocalDbPath(cfg: PowerMemConfig, stateDir: string): string {
@@ -702,6 +707,16 @@ const memoryPlugin = {
     );
 
     if (cfg.httpApiVersion === "v2") {
+      const createScopedV2Client = (identity: CrossScopeIdentity) =>
+        new PowerMemV2Client({
+          baseUrl: cfg.baseUrl,
+          apiKey: cfg.apiKey,
+          userId: identity.userId,
+          agentId: identity.agentId,
+          requestConfig: cfg.requestConfig,
+          timeoutMs: cfg.requestTimeoutMs,
+        });
+
       api.registerTool(
         (ctx: ToolContext) => ({
           name: "agent_memory_add",
@@ -811,6 +826,150 @@ const memoryPlugin = {
           },
         }),
         { name: "agent_memory_share" },
+      );
+
+      api.registerTool(
+        (_ctx: ToolContext) => ({
+          name: "cross_scope_share",
+          label: "Cross Scope Share",
+          description:
+            "Share memories across arbitrary userId/agentId scopes by copying matched memories.",
+          parameters: Type.Object({
+            fromUserId: Type.String({ description: "Source user ID" }),
+            fromAgentId: Type.String({ description: "Source agent ID" }),
+            toUserId: Type.String({ description: "Target user ID" }),
+            toAgentId: Type.String({ description: "Target agent ID" }),
+            query: Type.String({ description: "Search query in source scope" }),
+            limit: Type.Optional(
+              Type.Number({ description: "Max memories to copy (default: 20, range: 1-100)" }),
+            ),
+            scoreThreshold: Type.Optional(
+              Type.Number({ description: "Min score 0-1 to include (default: plugin recallScoreThreshold)" }),
+            ),
+            inferOnTarget: Type.Optional(
+              Type.Boolean({ description: "Whether target writes should infer memory extraction (default: false)" }),
+            ),
+          }),
+          async execute(_toolCallId: string, params: Record<string, unknown>) {
+            const {
+              fromUserId,
+              fromAgentId,
+              toUserId,
+              toAgentId,
+              query,
+              limit = 20,
+              scoreThreshold,
+              inferOnTarget = false,
+            } = params as {
+              fromUserId: string;
+              fromAgentId: string;
+              toUserId: string;
+              toAgentId: string;
+              query: string;
+              limit?: number;
+              scoreThreshold?: number;
+              inferOnTarget?: boolean;
+            };
+
+            const srcUser = fromUserId?.trim();
+            const srcAgent = fromAgentId?.trim();
+            const dstUser = toUserId?.trim();
+            const dstAgent = toAgentId?.trim();
+            const q = query?.trim();
+            if (!srcUser || !srcAgent || !dstUser || !dstAgent) {
+              return {
+                content: [{ type: "text", text: "fromUserId/fromAgentId/toUserId/toAgentId are required." }],
+                details: { error: "missing_identity" },
+              };
+            }
+            if (!q) {
+              return {
+                content: [{ type: "text", text: "query is required for cross_scope_share." }],
+                details: { error: "missing_query" },
+              };
+            }
+
+            const boundedLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+            const threshold =
+              typeof scoreThreshold === "number"
+                ? Math.max(0, Math.min(1, scoreThreshold))
+                : (cfg.recallScoreThreshold ?? 0);
+
+            const sourceIdentity: CrossScopeIdentity = { userId: srcUser, agentId: srcAgent };
+            const targetIdentity: CrossScopeIdentity = { userId: dstUser, agentId: dstAgent };
+            const sourceClient = createScopedV2Client(sourceIdentity);
+            const targetClient = createScopedV2Client(targetIdentity);
+
+            try {
+              const requestLimit = Math.min(100, Math.max(boundedLimit * 2, boundedLimit + 10));
+              const sourceRows = await sourceClient.search(q, requestLimit);
+              const selected = sourceRows
+                .filter((row) => (row.score ?? 0) >= threshold)
+                .slice(0, boundedLimit);
+
+              if (selected.length === 0) {
+                return {
+                  content: [{ type: "text", text: "No source memories matched for cross-scope sharing." }],
+                  details: { copied: 0, scanned: sourceRows.length },
+                };
+              }
+
+              let copied = 0;
+              const copiedIds: string[] = [];
+              const sharedAt = new Date().toISOString();
+              for (const row of selected) {
+                const metadata = {
+                  ...(row.metadata ?? {}),
+                  shared_via: "cross_scope_share",
+                  shared_at: sharedAt,
+                  shared_from_user_id: sourceIdentity.userId,
+                  shared_from_agent_id: sourceIdentity.agentId,
+                  shared_from_memory_id: String(row.memory_id),
+                };
+                const created = await targetClient.add(row.content, {
+                  infer: inferOnTarget,
+                  metadata,
+                });
+                copied += created.length;
+                for (const item of created) {
+                  copiedIds.push(String(item.memory_id));
+                }
+              }
+
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text:
+                      `Cross-scope share completed: copied ${copied} memories ` +
+                      `from ${sourceIdentity.userId}/${sourceIdentity.agentId} ` +
+                      `to ${targetIdentity.userId}/${targetIdentity.agentId}.`,
+                  },
+                ],
+                details: {
+                  copied,
+                  requestedLimit: boundedLimit,
+                  selected: selected.length,
+                  source: sourceIdentity,
+                  target: targetIdentity,
+                  copiedIds,
+                },
+              };
+            } catch (err) {
+              api.logger.warn(`memory-powermem: cross_scope_share failed: ${String(err)}`);
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `Failed to share across scopes: ${err instanceof Error ? err.message : String(err)}`,
+                  },
+                ],
+                details: { error: String(err) },
+              };
+            }
+          },
+        }),
+        { name: "cross_scope_share" },
       );
 
       api.registerTool(

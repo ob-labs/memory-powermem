@@ -313,7 +313,7 @@ openclaw ltm search "咖啡"
 | `syncMaxDelayMs` | 否 | 重试最大延迟，默认 `60000`。 |
 | `syncMaxRetries` | 否 | 单条最大重试次数，默认 `10`。 |
 
-**记忆划分与分享：** 建议用 `userId` / `agentId` 做逻辑隔离；HTTP v2 可用 `agent_memory_share` 进行显式共享。
+**记忆划分与分享：** 建议用 `userId` / `agentId` 做逻辑隔离；HTTP v2 可用 `agent_memory_share` 在同一 `userId` 下做跨 Agent 共享。若需跨 `userId` + `agentId`，可用 `cross_scope_share` 按 `query` 检索源记忆并复制到目标命名空间。
 
 **自动抓取**：会话结束时，会把本轮用户/助手文本发给 PowerMem（`infer: true`），由 PowerMem 抽取并落库。每轮最多 3 条，每条约 6000 字符以内。
 
@@ -332,6 +332,7 @@ openclaw ltm search "咖啡"
 - **agent_memory_list** — 列出 Agent 记忆（HTTP v2）
 - **agent_memory_share** — 共享 Agent 记忆（HTTP v2）
 - **agent_memory_shared** — 列出共享记忆（HTTP v2）
+- **cross_scope_share** — 跨 `userId` / `agentId` 复制共享记忆（HTTP v2）。参数：`fromUserId`、`fromAgentId`、`toUserId`、`toAgentId`、`query`，可选 `limit`、`scoreThreshold`、`inferOnTarget`。
 
 ---
 

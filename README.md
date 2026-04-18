@@ -312,6 +312,8 @@ After installing, uninstalling, or changing config, restart the OpenClaw gateway
 | `syncMaxDelayMs` | No | Max delay for retry backoff; default `60000`. |
 | `syncMaxRetries` | No | Max retry count per pending item; default `10`. |
 
+**Memory partitioning and sharing:** Use `userId` / `agentId` for logical isolation. In HTTP v2, `agent_memory_share` supports cross-agent sharing within the same `userId`; use `cross_scope_share` when you need to copy memories across both `userId` and `agentId` scopes.
+
 **Auto-capture:** When a session ends, this round’s user/assistant text is sent to PowerMem (`infer: true`) for extraction and storage. At most 3 items per round, each up to about 6000 characters.
 
 ---
@@ -329,6 +331,7 @@ Exposed to OpenClaw agents:
 - **agent_memory_list** — List an agent’s memories (HTTP v2 only).
 - **agent_memory_share** — Share memories across agents (HTTP v2 only).
 - **agent_memory_shared** — List memories shared with an agent (HTTP v2 only).
+- **cross_scope_share** — Copy memories across `userId`/`agentId` scopes (HTTP v2 only). Parameters: `fromUserId`, `fromAgentId`, `toUserId`, `toAgentId`, `query`; optional `limit`, `scoreThreshold`, `inferOnTarget`.
 
 ---
 
