@@ -356,6 +356,79 @@ const memoryPlugin = {
       return created;
     };
 
+    function dedupeSearchResults(items: PowerMemSearchResult[]): PowerMemSearchResult[] {
+      const deduped = new Map<string, PowerMemSearchResult>();
+      for (const item of items) {
+        const keyBase =
+          item.memory_id !== undefined && item.memory_id !== null
+            ? String(item.memory_id)
+            : item.content;
+        const key = keyBase.trim() ? keyBase : item.content;
+        const existing = deduped.get(key);
+        if (!existing || (existing.score ?? 0) < (item.score ?? 0)) {
+          deduped.set(key, item);
+        }
+      }
+      return Array.from(deduped.values()).sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    }
+
+    async function mergeSearchWithSharedInbox(
+      agentClient: MemoryClient & AgentMemoryClient,
+      ctxAgentId: string | undefined,
+      query: string,
+      primary: PowerMemSearchResult[],
+      requestLimit: number,
+      perfStagePrefix: string,
+    ): Promise<{ merged: PowerMemSearchResult[]; sharedFetched: number }> {
+      let merged: PowerMemSearchResult[] = [...primary];
+      let sharedFetched = 0;
+
+      if (agentClient.agentMemoryShared) {
+        const targetAgentId = resolveAgentIdentity(ctxAgentId).agentId;
+        try {
+          const sharedStartedAt = perfNow();
+          const sharedRows = await agentClient.agentMemoryShared(targetAgentId, requestLimit, 0);
+          perfLog(`${perfStagePrefix}.shared_fetch`, sharedStartedAt, {
+            agent: targetAgentId,
+            requestLimit,
+            sharedRowCount: sharedRows.length,
+          });
+          const normalizedQuery = query.trim().toLowerCase();
+          const sharedAsSearch: PowerMemSearchResult[] = [];
+          for (let idx = 0; idx < sharedRows.length; idx++) {
+            const record = sharedRows[idx] as Record<string, unknown>;
+            const rawText = record.content ?? record.memory;
+            const content =
+              typeof rawText === "string" ? rawText.trim() : String(rawText ?? "").trim();
+            if (!content) continue;
+            const rawMetadata = record.metadata;
+            const metadata =
+              rawMetadata && typeof rawMetadata === "object" && !Array.isArray(rawMetadata)
+                ? ({ ...(rawMetadata as Record<string, unknown>) } as Record<string, unknown>)
+                : {};
+            metadata.shared = true;
+            metadata.source = "shared";
+            const id = record.memory_id ?? record.id ?? `shared-${idx}`;
+            const hasQueryHit =
+              normalizedQuery.length > 0 && content.toLowerCase().includes(normalizedQuery);
+            const score = hasQueryHit ? 0.92 : 0.55;
+            sharedAsSearch.push({
+              memory_id: String(id),
+              content,
+              score,
+              metadata,
+            });
+          }
+          sharedFetched = sharedAsSearch.length;
+          merged = merged.concat(sharedAsSearch);
+        } catch (err) {
+          api.logger.warn(`memory-powermem: shared recall fallback failed: ${String(err)}`);
+        }
+      }
+
+      return { merged: dedupeSearchResults(merged), sharedFetched };
+    }
+
     const client = getClientForAgent();
     if (cfg.dualWrite && "syncPending" in client) {
       void (client as DualWriteClient).syncPending("startup");
@@ -416,67 +489,16 @@ const memoryPlugin = {
               requestLimit,
               resultCount: primary.length,
             });
-            let merged: PowerMemSearchResult[] = [...primary];
-            let sharedFetched = 0;
+            const { merged, sharedFetched } = await mergeSearchWithSharedInbox(
+              agentClient,
+              ctx?.agentId,
+              query,
+              primary,
+              requestLimit,
+              "memory_recall",
+            );
 
-            if (agentClient.agentMemoryShared) {
-              const targetAgentId = resolveAgentIdentity(ctx?.agentId).agentId;
-              try {
-                const sharedStartedAt = perfNow();
-                const sharedRows = await agentClient.agentMemoryShared(targetAgentId, requestLimit, 0);
-                perfLog("memory_recall.shared_fetch", sharedStartedAt, {
-                  agent: targetAgentId,
-                  requestLimit,
-                  sharedRowCount: sharedRows.length,
-                });
-                const normalizedQuery = query.trim().toLowerCase();
-                const sharedAsSearch: PowerMemSearchResult[] = [];
-                for (let idx = 0; idx < sharedRows.length; idx++) {
-                  const record = sharedRows[idx] as Record<string, unknown>;
-                  const rawText = record.content ?? record.memory;
-                  const content =
-                    typeof rawText === "string" ? rawText.trim() : String(rawText ?? "").trim();
-                  if (!content) continue;
-                  const rawMetadata = record.metadata;
-                  const metadata =
-                    rawMetadata && typeof rawMetadata === "object" && !Array.isArray(rawMetadata)
-                      ? ({ ...(rawMetadata as Record<string, unknown>) } as Record<string, unknown>)
-                      : {};
-                  metadata.shared = true;
-                  metadata.source = "shared";
-                  const id = record.memory_id ?? record.id ?? `shared-${idx}`;
-                  const hasQueryHit =
-                    normalizedQuery.length > 0 && content.toLowerCase().includes(normalizedQuery);
-                  const score = hasQueryHit ? 0.92 : 0.55;
-                  sharedAsSearch.push({
-                    memory_id: String(id),
-                    content,
-                    score,
-                    metadata,
-                  });
-                }
-                sharedFetched = sharedAsSearch.length;
-                merged = merged.concat(sharedAsSearch);
-              } catch (err) {
-                api.logger.warn(`memory-powermem: shared recall fallback failed: ${String(err)}`);
-              }
-            }
-
-            const deduped = new Map<string, PowerMemSearchResult>();
-            for (const item of merged) {
-              const keyBase =
-                item.memory_id !== undefined && item.memory_id !== null
-                  ? String(item.memory_id)
-                  : item.content;
-              const key = keyBase.trim() ? keyBase : item.content;
-              const existing = deduped.get(key);
-              if (!existing || (existing.score ?? 0) < (item.score ?? 0)) {
-                deduped.set(key, item);
-              }
-            }
-
-            const results = Array.from(deduped.values())
-              .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+            const results = merged
               .filter((r) => (r.score ?? 0) >= scoreThreshold)
               .slice(0, limit);
             perfLog("memory_recall.total", recallStartedAt, {
@@ -1554,7 +1576,7 @@ const memoryPlugin = {
       api.on("before_agent_start", async (...args: unknown[]) => {
         const autoRecallStartedAt = perfNow();
         const [event, ctx] = args as [unknown, ToolContext];
-        const agentClient = getClientForAgent(ctx?.agentId);
+        const agentClient = getClientForAgent(ctx?.agentId) as MemoryClient & AgentMemoryClient;
         const e = event as { prompt: string; messages?: unknown[] };
         const query =
           (typeof e.prompt === "string" && e.prompt.trim().length >= 5
@@ -1570,14 +1592,22 @@ const memoryPlugin = {
         try {
           const requestLimit = Math.min(100, Math.max(recallLimit * 2, recallLimit + 10));
           const searchStartedAt = perfNow();
-          const raw = await agentClient.search(query, requestLimit);
+          const primary = await agentClient.search(query, requestLimit);
           perfLog("autoRecall.search", searchStartedAt, {
             agent: resolveAgentIdentity(ctx?.agentId).agentId,
             queryLen: query.length,
             requestLimit,
-            resultCount: raw.length,
+            resultCount: primary.length,
           });
-          const { memories, experiences } = splitExperiences(raw);
+          const { merged: recallMerged, sharedFetched } = await mergeSearchWithSharedInbox(
+            agentClient,
+            ctx?.agentId,
+            query,
+            primary,
+            requestLimit,
+            "autoRecall",
+          );
+          const { memories, experiences } = splitExperiences(recallMerged);
           const memoryResults = memories
             .filter((r) => (r.score ?? 0) >= scoreThreshold)
             .slice(0, recallLimit);
@@ -1615,6 +1645,7 @@ const memoryPlugin = {
             queryLen: query.length,
             memoryCount: memoryResults.length,
             experienceCount: experienceResults.length,
+            sharedCount: sharedFetched,
           });
 
           return {
