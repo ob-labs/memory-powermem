@@ -269,6 +269,7 @@ export class PowerMemV2Client {
     const body = {
       limit,
       offset,
+      user_id: this.userId,
       ...this.buildConfigPayload(),
     };
     const res = await this.request<ApiResponse<{ memories?: Array<Record<string, unknown>> }>>(
