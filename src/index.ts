@@ -1203,7 +1203,10 @@ const memoryPlugin = {
               const rows = await agentClient.agentMemoryShared(targetAgentId, limit, offset);
               const list = rows ?? [];
               const text = list
-                .map((row, idx) => `${idx + 1}. ${String(row.content ?? "").slice(0, 80)}`)
+                .map(
+                  (row, idx) =>
+                    `${idx + 1}. ${String((row.content ?? row.memory) as string).slice(0, 80)}`,
+                )
                 .join("\n");
               return {
                 content: [
