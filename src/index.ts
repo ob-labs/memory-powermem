@@ -433,7 +433,9 @@ const memoryPlugin = {
                 const sharedAsSearch: PowerMemSearchResult[] = [];
                 for (let idx = 0; idx < sharedRows.length; idx++) {
                   const record = sharedRows[idx] as Record<string, unknown>;
-                  const content = typeof record.content === "string" ? record.content.trim() : "";
+                  const rawText = record.content ?? record.memory;
+                  const content =
+                    typeof rawText === "string" ? rawText.trim() : String(rawText ?? "").trim();
                   if (!content) continue;
                   const rawMetadata = record.metadata;
                   const metadata =
@@ -1128,9 +1130,15 @@ const memoryPlugin = {
         (ctx: ToolContext) => ({
           name: "agent_memory_list",
           label: "Agent Memory List",
-          description: "List memories owned by an agent (v2 only).",
+          description:
+            "List memories **owned by** an agent (v2 only). Omit agentId to list **this bot's** own memories.",
           parameters: Type.Object({
-            agentId: Type.String({ description: "Target agent ID" }),
+            agentId: Type.Optional(
+              Type.String({
+                description:
+                  "Which agent's vault to list (PowerMem agentId). Omit = current OpenClaw agent.",
+              }),
+            ),
             limit: Type.Optional(Type.Number({ description: "Max results (default: 20)" })),
             offset: Type.Optional(Type.Number({ description: "Offset (default: 0)" })),
           }),
@@ -1142,16 +1150,33 @@ const memoryPlugin = {
                 details: { error: "unsupported" },
               };
             }
-            const { agentId: targetAgentId, limit = 20, offset = 0 } = params as {
-              agentId: string;
+            const currentAgentId = resolveAgentIdentity(ctx?.agentId).agentId;
+            const requested = (params as { agentId?: string }).agentId?.trim();
+            const targetAgentId =
+              requested && requested.length > 0 ? requested : currentAgentId;
+            const { limit = 20, offset = 0 } = params as {
               limit?: number;
               offset?: number;
             };
+            if (!targetAgentId) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: "Cannot list agent memories: no agentId (configure memory-powermem agentId or pass agentId).",
+                  },
+                ],
+                details: { error: "missing_agent_id" },
+              };
+            }
             try {
               const rows = await agentClient.agentMemoryList(targetAgentId, limit, offset);
               const list = rows ?? [];
               const text = list
-                .map((row, idx) => `${idx + 1}. ${String(row.content ?? "").slice(0, 80)}`)
+                .map(
+                  (row, idx) =>
+                    `${idx + 1}. ${String((row.content ?? row.memory) as string).slice(0, 80)}`,
+                )
                 .join("\n");
               return {
                 content: [
@@ -1180,9 +1205,15 @@ const memoryPlugin = {
         (ctx: ToolContext) => ({
           name: "agent_memory_shared",
           label: "Agent Memory Shared",
-          description: "List memories shared with an agent (v2 only).",
+          description:
+            "List memories **shared to** an agent (inbound, v2 only). Pass the **receiver** agent id — usually **this bot's** PowerMem agentId. You can omit agentId to use the current OpenClaw agent automatically (not userId).",
           parameters: Type.Object({
-            agentId: Type.String({ description: "Target agent ID" }),
+            agentId: Type.Optional(
+              Type.String({
+                description:
+                  "Receiver agent id (PowerMem agentId of **this** bot). Omit = current session agent.",
+              }),
+            ),
             limit: Type.Optional(Type.Number({ description: "Max results (default: 20)" })),
             offset: Type.Optional(Type.Number({ description: "Offset (default: 0)" })),
           }),
@@ -1194,11 +1225,25 @@ const memoryPlugin = {
                 details: { error: "unsupported" },
               };
             }
-            const { agentId: targetAgentId, limit = 20, offset = 0 } = params as {
-              agentId: string;
+            const currentAgentId = resolveAgentIdentity(ctx?.agentId).agentId;
+            const requested = (params as { agentId?: string }).agentId?.trim();
+            const targetAgentId =
+              requested && requested.length > 0 ? requested : currentAgentId;
+            const { limit = 20, offset = 0 } = params as {
               limit?: number;
               offset?: number;
             };
+            if (!targetAgentId) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: "Cannot list shared memories: no agentId (configure memory-powermem agentId or pass agentId).",
+                  },
+                ],
+                details: { error: "missing_agent_id" },
+              };
+            }
             try {
               const rows = await agentClient.agentMemoryShared(targetAgentId, limit, offset);
               const list = rows ?? [];
