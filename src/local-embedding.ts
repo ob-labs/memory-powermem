@@ -75,6 +75,22 @@ function buildEmbeddingsUrl(baseUrl: string): string {
   return baseUrl.endsWith("/v1") ? `${baseUrl}/embeddings` : `${baseUrl}/v1/embeddings`;
 }
 
+/** Avoid `res.json()` on empty/truncated bodies (throws Unexpected end of JSON input). */
+async function parseEmbeddingsResponseBody(res: Response): Promise<unknown> {
+  const text = await res.text();
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new Error(`embeddings HTTP ${res.status}: empty response body`);
+  }
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch (err) {
+    const preview = trimmed.length > 240 ? `${trimmed.slice(0, 240)}…` : trimmed;
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new Error(`embeddings HTTP ${res.status}: invalid JSON (${cause}). Preview: ${preview}`);
+  }
+}
+
 function normalizeEmbedding(vec: number[]): number[] {
   const sanitized = vec.map((value) => (Number.isFinite(value) ? value : 0));
   const magnitude = Math.sqrt(sanitized.reduce((sum, value) => sum + value * value, 0));
@@ -278,7 +294,7 @@ async function createEmbeddingProvider(params: {
       headers,
       body: JSON.stringify({ model: params.cfg.model, input: texts }),
     });
-    const payload = (await res.json()) as {
+    const payload = (await parseEmbeddingsResponseBody(res)) as {
       data?: Array<{ embedding?: number[] }>;
       error?: { message?: string };
     };

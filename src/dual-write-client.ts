@@ -162,7 +162,9 @@ export class DualWriteClient {
             userId: this.localUserId,
             agentId: this.localAgentId,
           });
-          await this.upsertEmbedding(localId, row.content);
+          // Do not await: local embed can be slow or fail (e.g. fetch to embedding API);
+          // serial await here blocks before_agent_start / autoRecall for minutes.
+          void this.upsertEmbedding(localId, row.content);
         }
       }
       void this.syncPending("remote-search-success");
