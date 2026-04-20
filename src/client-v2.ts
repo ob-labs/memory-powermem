@@ -96,18 +96,30 @@ export class PowerMemV2Client {
     });
   }
 
+  /** Share-all or many rows can exceed default timeout; floor avoids AbortError masking as generic failure. */
+  private static readonly shareRequestMinTimeoutMs = 180_000;
+
   private async request<T>(
     method: string,
     path: string,
     body?: unknown,
     parseJson = true,
+    timeoutOverrideMs?: number,
   ): Promise<T> {
     const url = buildUrl(this.baseUrl, path);
-    const res = await fetchWithTimeout(url, {
-      method,
-      headers: buildHeaders(this.apiKey),
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    }, this.timeoutMs);
+    const effectiveMs =
+      typeof timeoutOverrideMs === "number"
+        ? timeoutOverrideMs
+        : this.timeoutMs;
+    const res = await fetchWithTimeout(
+      url,
+      {
+        method,
+        headers: buildHeaders(this.apiKey),
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      },
+      effectiveMs,
+    );
     return handleResponse<T>(res, parseJson);
   }
 
@@ -252,10 +264,16 @@ export class PowerMemV2Client {
       ...(memoryIds && memoryIds.length > 0 ? { memory_ids: memoryIds } : {}),
       ...this.buildConfigPayload(),
     };
+    const shareTimeout = Math.max(
+      this.timeoutMs,
+      PowerMemV2Client.shareRequestMinTimeoutMs,
+    );
     const res = await this.request<ApiResponse<Record<string, unknown>>>(
       "POST",
       `/api/v2/agents/${encodeURIComponent(fromAgentId)}/memories/share`,
       body,
+      true,
+      shareTimeout,
     );
     return { shared_count: Number(res?.data?.shared_count ?? 0) };
   }

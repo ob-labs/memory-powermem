@@ -939,12 +939,16 @@ const memoryPlugin = {
         (ctx: ToolContext) => ({
           name: "agent_memory_share",
           label: "Agent Memory Share",
-          description: "Share memories from one agent to another (v2 only).",
+          description:
+            "Share memories from one agent to another (v2 only). Omitting memoryIds shares ALL memories for the source agent (can be slow); pass memoryIds to share only specific rows and avoid timeouts.",
           parameters: Type.Object({
             fromAgentId: Type.Optional(Type.String({ description: "Source agent ID (default: current)" })),
             targetAgentId: Type.String({ description: "Target agent ID" }),
             memoryIds: Type.Optional(
-              Type.Array(Type.Number(), { description: "Specific memory IDs to share (optional)" }),
+              Type.Array(Type.Number(), {
+                description:
+                  "Numeric memory IDs to share. Strongly recommended when sharing one or a few memories; omit only for full export (may take minutes).",
+              }),
             ),
           }),
           async execute(_toolCallId: string, params: Record<string, unknown>) {
