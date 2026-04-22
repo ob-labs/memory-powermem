@@ -1,18 +1,15 @@
 {
   "name": "memory-powermem",
-  "version": "1.0.0",
-  "description": "OpenClaw plugin: long-term memory via PowerMem (default local CLI; optional HTTP server; intelligent extraction, Ebbinghaus forgetting curve).",
+  "version": "0.4.0",
+  "description": "OpenClaw plugin: long-term memory via PowerMem (default local CLI: npm powermem or pmem on PATH; optional HTTP server; intelligent extraction, Ebbinghaus forgetting curve).",
   "type": "module",
-  "main": "index.ts",
+  "main": "src/index.ts",
   "exports": {
-    ".": "./index.ts"
+    ".": "./src/index.ts"
   },
   "files": [
-    "index.ts",
-    "config.ts",
-    "client.ts",
-    "client-cli.ts",
-    "openclaw-powermem-env.ts",
+    "src",
+    "lib",
     "openclaw.plugin.json"
   ],
   "scripts": {
@@ -20,7 +17,12 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@sinclair/typebox": "^0.34.0"
+    "@langchain/openai": "^1.4.1",
+    "@mariozechner/pi-ai": "^0.67.2",
+    "@sinclair/typebox": "^0.34.0",
+    "better-sqlite3": "^12.9.0",
+    "powermem": "^0.1.1",
+    "sqlite-vec": "^0.1.9"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -31,11 +33,20 @@
     "openclaw": ">=2026.1.0"
   },
   "peerDependenciesMeta": {
-    "openclaw": { "optional": true }
+    "openclaw": {
+      "optional": true
+    }
   },
   "openclaw": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./src/index.ts"
+    ]
   },
   "repository": "",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3"
+    ]
+  }
 }

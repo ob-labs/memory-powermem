@@ -10,7 +10,7 @@ import {
   DEFAULT_AGENT_ID,
   DEFAULT_PLUGIN_CONFIG,
   type PowerMemConfig,
-} from "../config.js";
+} from "../src/config.js";
 
 describe("powerMemConfigSchema", () => {
   it("parses valid http config with required fields", () => {
@@ -39,7 +39,7 @@ describe("powerMemConfigSchema", () => {
       inferOnAdd: false,
     }) as PowerMemConfig;
     expect(cfg.mode).toBe("cli");
-    expect(cfg.pmemPath).toBe("pmem");
+    expect(cfg.pmemPath).toBe("bundled");
   });
 
   it("infers http when mode omitted but baseUrl is set", () => {
@@ -67,6 +67,7 @@ describe("powerMemConfigSchema", () => {
     expect(DEFAULT_PLUGIN_CONFIG.mode).toBe("cli");
     expect(DEFAULT_PLUGIN_CONFIG.baseUrl).toBe("");
     expect(DEFAULT_PLUGIN_CONFIG.envFile).toBeUndefined();
+    expect(DEFAULT_PLUGIN_CONFIG.pmemPath).toBe("bundled");
     expect(DEFAULT_PLUGIN_CONFIG.useOpenClawModel).toBe(true);
   });
 

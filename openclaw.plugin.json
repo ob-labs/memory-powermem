@@ -18,6 +18,24 @@
       "placeholder": "",
       "help": "Optional; required if PowerMem server has authentication enabled (http mode only)"
     },
+    "httpApiVersion": {
+      "label": "HTTP API version",
+      "placeholder": "v1",
+      "advanced": true,
+      "help": "HTTP mode: v1 (default) or v2. v2 enables per-request config and agent memory APIs."
+    },
+    "requestTimeoutMs": {
+      "label": "Request timeout (ms)",
+      "placeholder": "30000",
+      "advanced": true,
+      "help": "Abort HTTP/CLI requests after this many milliseconds (0 = no timeout)"
+    },
+    "requestConfig": {
+      "label": "Request config (v2)",
+      "placeholder": "",
+      "advanced": true,
+      "help": "HTTP v2 only: per-request PowerMem config object (same shape as auto_config())."
+    },
     "envFile": {
       "label": "Env file path",
       "placeholder": "",
@@ -26,9 +44,9 @@
     },
     "pmemPath": {
       "label": "pmem binary path",
-      "placeholder": "pmem",
+      "placeholder": "bundled",
       "advanced": true,
-      "help": "CLI mode: path to pmem (or powermem) executable. Default: pmem"
+      "help": "CLI mode: bundled (default) or auto = npm powermem next to this plugin if installed, else pmem on PATH; or absolute path / command name (e.g. Python venv pmem)"
     },
     "userId": {
       "label": "User ID",
@@ -54,6 +72,10 @@
       "advanced": true,
       "help": "Min score (0–1); memories below are filtered out"
     },
+    "walCapture": {
+      "label": "WAL Capture",
+      "help": "Incrementally capture key facts during conversations to prevent loss on crash/compaction"
+    },
     "autoCapture": {
       "label": "Auto-Capture",
       "help": "Automatically store important information from conversations"
@@ -62,9 +84,91 @@
       "label": "Auto-Recall",
       "help": "Automatically inject relevant memories into context"
     },
+    "autoExperience": {
+      "label": "Auto-Experience",
+      "help": "Automatically store session experiences at agent_end"
+    },
+    "experienceRecall": {
+      "label": "Experience Recall",
+      "help": "Automatically inject relevant experiences into context"
+    },
     "inferOnAdd": {
       "label": "Infer on Add",
       "help": "Use PowerMem intelligent extraction when adding (infer=true)"
+    },
+    "debugPerfLog": {
+      "label": "Debug performance logs",
+      "advanced": true,
+      "help": "Enable slow-path performance logs for key memory operations."
+    },
+    "perfSlowMs": {
+      "label": "Perf slow threshold (ms)",
+      "advanced": true,
+      "placeholder": "800",
+      "help": "Only log performance entries slower than this threshold."
+    },
+    "dualWrite": {
+      "label": "Dual write (HTTP + SQLite)",
+      "advanced": true,
+      "help": "When enabled, write to remote HTTP and local sqlite for failover and resync."
+    },
+    "localDbPath": {
+      "label": "Local sqlite path",
+      "advanced": true,
+      "placeholder": "",
+      "help": "Local sqlite file path for dual-write. Default: <stateDir>/powermem/local-memories.sqlite"
+    },
+    "localUserId": {
+      "label": "Local User ID",
+      "advanced": true,
+      "placeholder": "",
+      "help": "Override user_id for local sqlite storage (dual-write)"
+    },
+    "localAgentId": {
+      "label": "Local Agent ID",
+      "advanced": true,
+      "placeholder": "",
+      "help": "Override agent_id for local sqlite storage (dual-write)"
+    },
+    "syncOnResume": {
+      "label": "Sync pending writes",
+      "advanced": true,
+      "help": "When remote recovers, sync local pending writes (default true)"
+    },
+    "syncBatchSize": {
+      "label": "Sync batch size",
+      "advanced": true,
+      "placeholder": "50",
+      "help": "Max pending writes per sync attempt"
+    },
+    "syncMinIntervalMs": {
+      "label": "Sync min interval (ms)",
+      "advanced": true,
+      "placeholder": "5000",
+      "help": "Minimum interval between sync attempts"
+    },
+    "syncBaseDelayMs": {
+      "label": "Sync base delay (ms)",
+      "advanced": true,
+      "placeholder": "5000",
+      "help": "Base backoff delay after a failed sync"
+    },
+    "syncMaxDelayMs": {
+      "label": "Sync max delay (ms)",
+      "advanced": true,
+      "placeholder": "60000",
+      "help": "Maximum backoff delay after failures"
+    },
+    "syncMaxRetries": {
+      "label": "Sync max retries",
+      "advanced": true,
+      "placeholder": "10",
+      "help": "Skip items after this many failed retries (0 = unlimited)"
+    },
+    "localVector": {
+      "label": "Local vector search",
+      "advanced": true,
+      "help": "Optional local vector fallback for dual-write (OpenAI/Ollama compatible embeddings + sqlite-vec)."
     },
     "useOpenClawModel": {
       "label": "Use OpenClaw LLM for PowerMem",
@@ -79,15 +183,48 @@
       "mode": { "type": "string", "enum": ["http", "cli"] },
       "baseUrl": { "type": "string" },
       "apiKey": { "type": "string" },
+      "httpApiVersion": { "type": "string", "enum": ["v1", "v2"] },
+      "requestTimeoutMs": { "type": "number" },
+      "requestConfig": { "type": "object" },
       "envFile": { "type": "string" },
       "pmemPath": { "type": "string" },
       "userId": { "type": "string" },
       "agentId": { "type": "string" },
       "recallLimit": { "type": "number" },
       "recallScoreThreshold": { "type": "number" },
+      "walCapture": { "type": "boolean" },
       "autoCapture": { "type": "boolean" },
       "autoRecall": { "type": "boolean" },
+      "autoExperience": { "type": "boolean" },
+      "experienceRecall": { "type": "boolean" },
       "inferOnAdd": { "type": "boolean" },
+      "debugPerfLog": { "type": "boolean" },
+      "perfSlowMs": { "type": "number" },
+      "dualWrite": { "type": "boolean" },
+      "localDbPath": { "type": "string" },
+      "localUserId": { "type": "string" },
+      "localAgentId": { "type": "string" },
+      "syncOnResume": { "type": "boolean" },
+      "syncBatchSize": { "type": "number" },
+      "syncMinIntervalMs": { "type": "number" },
+      "syncBaseDelayMs": { "type": "number" },
+      "syncMaxDelayMs": { "type": "number" },
+      "syncMaxRetries": { "type": "number" },
+      "localVector": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "apiKey": { "type": "string" },
+          "baseUrl": { "type": "string" },
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      },
       "useOpenClawModel": { "type": "boolean" }
     },
     "required": []

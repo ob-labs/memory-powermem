@@ -6,8 +6,9 @@
 
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import type { PowerMemConfig } from "./config.js";
+import { DEFAULT_PMEM_PATH, type PowerMemConfig } from "./config.js";
 import type { PowerMemAddResult, PowerMemSearchResult } from "./client.js";
+import { resolvePmemExecutable } from "./resolve-powermem-cli.js";
 
 const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024; // 10 MiB
 
@@ -17,6 +18,7 @@ export type PowerMemCLIClientOptions = {
   resolvedEnvFile?: string;
   userId: string;
   agentId: string;
+  timeoutMs?: number;
   /**
    * Vars merged into the subprocess environment (after process.env).
    * OpenClaw + SQLite defaults; cached for the plugin process lifetime.
@@ -36,50 +38,60 @@ function parseJsonOrThrow<T>(stdout: string, context: string): T {
   }
 }
 
-/** Normalize CLI add result to PowerMemAddResult[]. */
-function normalizeAddOutput(raw: unknown): PowerMemAddResult[] {
+function coerceId(v: unknown): string | number {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  const s = String(v).trim();
+  if (s !== "" && /^\d+$/.test(s)) {
+    const n = Number(s);
+    if (Number.isSafeInteger(n)) return n;
+  }
+  return s;
+}
+
+function mapAddRow(r: Record<string, unknown>): PowerMemAddResult {
+  const idRaw = r.memoryId ?? r.memory_id ?? r.id;
+  return {
+    memory_id: coerceId(idRaw),
+    content: String(r.memory ?? r.content ?? ""),
+    user_id: (r.userId ?? r.user_id) as string | undefined,
+    agent_id: (r.agentId ?? r.agent_id) as string | undefined,
+    metadata: r.metadata as Record<string, unknown> | undefined,
+  };
+}
+
+function mapSearchRow(r: Record<string, unknown>): PowerMemSearchResult {
+  const idRaw = r.memory_id ?? r.memoryId ?? r.id;
+  return {
+    memory_id: coerceId(idRaw),
+    content: String(r.content ?? r.memory ?? ""),
+    score: Number(r.score ?? r.similarity ?? 0),
+    metadata: r.metadata as Record<string, unknown> | undefined,
+  };
+}
+
+/** Normalize CLI add JSON (Python pmem or powermem-ts) to PowerMemAddResult[]. */
+export function normalizeAddOutput(raw: unknown): PowerMemAddResult[] {
   if (Array.isArray(raw)) {
-    return raw.map((r) => ({
-      memory_id: Number((r as Record<string, unknown>).id ?? (r as Record<string, unknown>).memory_id ?? 0),
-      content: String((r as Record<string, unknown>).memory ?? (r as Record<string, unknown>).content ?? ""),
-      user_id: (r as Record<string, unknown>).user_id as string | undefined,
-      agent_id: (r as Record<string, unknown>).agent_id as string | undefined,
-      metadata: (r as Record<string, unknown>).metadata as Record<string, unknown> | undefined,
-    }));
+    return raw.map((r) => mapAddRow(r as Record<string, unknown>));
   }
   const obj = raw as Record<string, unknown>;
-  const results = obj?.results ?? obj?.data;
+  const results = obj?.memories ?? obj?.results ?? obj?.data;
   if (Array.isArray(results)) {
-    return results.map((r: Record<string, unknown>) => ({
-      memory_id: Number(r.id ?? r.memory_id ?? 0),
-      content: String(r.memory ?? r.content ?? ""),
-      user_id: r.user_id as string | undefined,
-      agent_id: r.agent_id as string | undefined,
-      metadata: r.metadata as Record<string, unknown> | undefined,
-    }));
+    return results.map((r: Record<string, unknown>) => mapAddRow(r));
   }
   return [];
 }
 
-/** Normalize CLI search result to PowerMemSearchResult[]. */
-function normalizeSearchOutput(raw: unknown): PowerMemSearchResult[] {
+/** Normalize CLI search JSON to PowerMemSearchResult[]. */
+export function normalizeSearchOutput(raw: unknown): PowerMemSearchResult[] {
   if (Array.isArray(raw)) {
-    return raw.map((r) => ({
-      memory_id: Number((r as Record<string, unknown>).memory_id ?? (r as Record<string, unknown>).id ?? 0),
-      content: String((r as Record<string, unknown>).content ?? (r as Record<string, unknown>).memory ?? ""),
-      score: Number((r as Record<string, unknown>).score ?? (r as Record<string, unknown>).similarity ?? 0),
-      metadata: (r as Record<string, unknown>).metadata as Record<string, unknown> | undefined,
-    }));
+    return raw.map((r) => mapSearchRow(r as Record<string, unknown>));
   }
   const obj = raw as Record<string, unknown>;
   const results = obj?.results ?? obj?.data ?? obj?.memories;
   if (Array.isArray(results)) {
-    return results.map((r: Record<string, unknown>) => ({
-      memory_id: Number(r.memory_id ?? r.id ?? 0),
-      content: String(r.content ?? r.memory ?? ""),
-      score: Number(r.score ?? r.similarity ?? 0),
-      metadata: r.metadata as Record<string, unknown> | undefined,
-    }));
+    return results.map((r: Record<string, unknown>) => mapSearchRow(r));
   }
   return [];
 }
@@ -90,6 +102,7 @@ export class PowerMemCLIClient {
   private readonly userId: string;
   private readonly agentId: string;
   private readonly buildProcessEnv?: () => Promise<Record<string, string>>;
+  private readonly timeoutMs: number;
   private injectPromise: Promise<Record<string, string>> | null = null;
 
   constructor(options: PowerMemCLIClientOptions) {
@@ -98,6 +111,7 @@ export class PowerMemCLIClient {
     this.userId = options.userId;
     this.agentId = options.agentId;
     this.buildProcessEnv = options.buildProcessEnv;
+    this.timeoutMs = options.timeoutMs ?? 60000;
   }
 
   static fromConfig(
@@ -109,11 +123,12 @@ export class PowerMemCLIClient {
     const raw = cfg.envFile?.trim();
     const resolved = raw && existsSync(raw) ? raw : undefined;
     return new PowerMemCLIClient({
-      pmemPath: cfg.pmemPath ?? "pmem",
+      pmemPath: resolvePmemExecutable(cfg.pmemPath ?? DEFAULT_PMEM_PATH),
       resolvedEnvFile: resolved,
       userId,
       agentId,
       buildProcessEnv: extras?.buildProcessEnv,
+      timeoutMs: cfg.requestTimeoutMs,
     });
   }
 
@@ -139,6 +154,7 @@ export class PowerMemCLIClient {
         encoding: "utf-8",
         maxBuffer: DEFAULT_MAX_BUFFER,
         env,
+        timeout: this.timeoutMs > 0 ? this.timeoutMs : undefined,
       });
       return out;
     } catch (err) {
@@ -155,7 +171,7 @@ export class PowerMemCLIClient {
     return this.resolvedEnvFile ? ["--env-file", this.resolvedEnvFile] : [];
   }
 
-  async health(): Promise<{ status: string }> {
+  async health(): Promise<{ status: string; error?: string }> {
     const argsList = [
       ...this.envFileArgs(),
       "--json",
@@ -172,8 +188,9 @@ export class PowerMemCLIClient {
     try {
       await this.run(argsList, "health");
       return { status: "healthy" };
-    } catch {
-      return { status: "unhealthy" };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { status: "unhealthy", error: msg };
     }
   }
 

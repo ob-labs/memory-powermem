@@ -4,16 +4,18 @@
  */
 
 import type { PowerMemConfig } from "./config.js";
+import { fetchWithTimeout } from "./http.js";
 
 export type PowerMemSearchResult = {
-  memory_id: number;
+  /** String IDs are used by powermem-ts; HTTP API may return numeric ids. */
+  memory_id: string | number;
   content: string;
   score: number;
   metadata?: Record<string, unknown>;
 };
 
 export type PowerMemAddResult = {
-  memory_id: number;
+  memory_id: string | number;
   content: string;
   user_id?: string;
   agent_id?: string;
@@ -59,6 +61,7 @@ export type PowerMemClientOptions = {
   apiKey?: string;
   userId?: string;
   agentId?: string;
+  timeoutMs?: number;
 };
 
 export class PowerMemClient {
@@ -66,12 +69,14 @@ export class PowerMemClient {
   private readonly apiKey?: string;
   private readonly userId: string;
   private readonly agentId: string;
+  private readonly timeoutMs: number;
 
   constructor(options: PowerMemClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;
     this.userId = options.userId ?? "openclaw-user";
     this.agentId = options.agentId ?? "openclaw-agent";
+    this.timeoutMs = options.timeoutMs ?? 30000;
   }
 
   static fromConfig(cfg: PowerMemConfig, userId: string, agentId: string): PowerMemClient {
@@ -80,6 +85,7 @@ export class PowerMemClient {
       apiKey: cfg.apiKey,
       userId,
       agentId,
+      timeoutMs: cfg.requestTimeoutMs,
     });
   }
 
@@ -90,22 +96,27 @@ export class PowerMemClient {
     parseJson = true,
   ): Promise<T> {
     const url = buildUrl(this.baseUrl, path);
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method,
       headers: buildHeaders(this.apiKey),
       body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    }, this.timeoutMs);
     return handleResponse<T>(res, parseJson);
   }
 
   /** GET /api/v1/system/health */
-  async health(): Promise<{ status: string }> {
-    const data = await this.request<{ data?: { status?: string } }>(
-      "GET",
-      "/api/v1/system/health",
-      undefined,
-    );
-    return { status: data?.data?.status ?? "unknown" };
+  async health(): Promise<{ status: string; error?: string }> {
+    try {
+      const data = await this.request<{ data?: { status?: string } }>(
+        "GET",
+        "/api/v1/system/health",
+        undefined,
+      );
+      return { status: data?.data?.status ?? "unknown" };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { status: "unhealthy", error: msg };
+    }
   }
 
   /** POST /api/v1/memories */
@@ -126,7 +137,13 @@ export class PowerMemClient {
       body,
     );
     if (!res?.data) return [];
-    return res.data;
+    return res.data.map((row) => ({
+      ...row,
+      memory_id:
+        row.memory_id !== undefined && row.memory_id !== null
+          ? String(row.memory_id)
+          : row.memory_id,
+    }));
   }
 
   /** POST /api/v1/memories/search */
@@ -141,7 +158,14 @@ export class PowerMemClient {
       success: boolean;
       data?: { results?: PowerMemSearchResult[] };
     }>("POST", "/api/v1/memories/search", body);
-    return res?.data?.results ?? [];
+    const rows = res?.data?.results ?? [];
+    return rows.map((row) => ({
+      ...row,
+      memory_id:
+        row.memory_id !== undefined && row.memory_id !== null
+          ? String(row.memory_id)
+          : row.memory_id,
+    }));
   }
 
   /** DELETE /api/v1/memories/:memory_id */
