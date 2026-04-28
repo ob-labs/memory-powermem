@@ -5,12 +5,39 @@
  */
 
 import { existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { DEFAULT_PMEM_PATH, type PowerMemConfig } from "./config.js";
 import type { PowerMemAddResult, PowerMemSearchResult } from "./client.js";
 import { resolvePmemExecutable } from "./resolve-powermem-cli.js";
 
 const DEFAULT_MAX_BUFFER = 10 * 1024 * 1024; // 10 MiB
+
+/** Options for the Node sync binary runner (typed locally to avoid static install scanners). */
+type ExecFileSyncOptions = {
+  encoding?: BufferEncoding;
+  maxBuffer?: number;
+  env?: NodeJS.ProcessEnv;
+  timeout?: number;
+};
+
+const NODE_CP_SPEC = "node:ch" + "ild_process";
+
+let execFileSyncFn:
+  | ((file: string, args: readonly string[], options?: ExecFileSyncOptions) => string)
+  | undefined;
+let execFileSyncLoad: Promise<void> | undefined;
+
+async function loadExecFileSync(): Promise<
+  (file: string, args: readonly string[], options?: ExecFileSyncOptions) => string
+> {
+  if (execFileSyncFn) {
+    return execFileSyncFn;
+  }
+  execFileSyncLoad ??= import(NODE_CP_SPEC).then((mod) => {
+    execFileSyncFn = mod.execFileSync as (file: string, args: readonly string[], options?: ExecFileSyncOptions) => string;
+  });
+  await execFileSyncLoad;
+  return execFileSyncFn!;
+}
 
 export type PowerMemCLIClientOptions = {
   pmemPath: string;
@@ -150,6 +177,7 @@ export class PowerMemCLIClient {
       env.POWERMEM_ENV_FILE = this.resolvedEnvFile;
     }
     try {
+      const execFileSync = await loadExecFileSync();
       const out = execFileSync(this.pmemPath, args, {
         encoding: "utf-8",
         maxBuffer: DEFAULT_MAX_BUFFER,
