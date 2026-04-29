@@ -302,6 +302,7 @@ After installing, uninstalling, or changing config, restart the OpenClaw gateway
 | `experienceRecall` | No | Include experiences in recall results; default `true`. |
 | `inferOnAdd` | No | Use PowerMem intelligent extraction when adding; default `true`. |
 | `dualWrite` | No | HTTP only: write to remote + local SQLite and queue failed writes. |
+| `dualWritePriority` | No | Dual-write priority: `"remote"` (default) tries PowerMem first and falls back to local SQLite; `"local"` writes/searches SQLite first and syncs to remote. |
 | `localDbPath` | No | Local SQLite path for `dualWrite`. |
 | `localUserId` | No | Local namespace for `dualWrite` (defaults to `userId`). |
 | `localAgentId` | No | Local namespace for `dualWrite` (defaults to `agentId`). |

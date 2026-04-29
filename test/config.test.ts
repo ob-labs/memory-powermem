@@ -69,6 +69,17 @@ describe("powerMemConfigSchema", () => {
     expect(DEFAULT_PLUGIN_CONFIG.envFile).toBeUndefined();
     expect(DEFAULT_PLUGIN_CONFIG.pmemPath).toBe("bundled");
     expect(DEFAULT_PLUGIN_CONFIG.useOpenClawModel).toBe(true);
+    expect(DEFAULT_PLUGIN_CONFIG.dualWritePriority).toBe("remote");
+  });
+
+  it("parses dual-write local priority", () => {
+    const cfg = powerMemConfigSchema.parse({
+      mode: "http",
+      baseUrl: "http://localhost:8000",
+      dualWrite: true,
+      dualWritePriority: "local",
+    }) as PowerMemConfig;
+    expect(cfg.dualWritePriority).toBe("local");
   });
 
   it("rejects non-object config", () => {

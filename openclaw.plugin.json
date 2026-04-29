@@ -112,6 +112,12 @@
       "advanced": true,
       "help": "When enabled, write to remote HTTP and local sqlite for failover and resync."
     },
+    "dualWritePriority": {
+      "label": "Dual write priority",
+      "advanced": true,
+      "placeholder": "remote",
+      "help": "Dual-write read/write priority: remote (default) tries PowerMem first and falls back to local SQLite; local writes/searches SQLite first and syncs to remote."
+    },
     "localDbPath": {
       "label": "Local sqlite path",
       "advanced": true,
@@ -201,6 +207,7 @@
       "debugPerfLog": { "type": "boolean" },
       "perfSlowMs": { "type": "number" },
       "dualWrite": { "type": "boolean" },
+      "dualWritePriority": { "type": "string", "enum": ["remote", "local"] },
       "localDbPath": { "type": "string" },
       "localUserId": { "type": "string" },
       "localAgentId": { "type": "string" },

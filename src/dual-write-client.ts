@@ -33,9 +33,12 @@ export type RemoteClient = {
 
 type Logger = { info?: (msg: string) => void; warn?: (msg: string) => void };
 
+export type DualWritePriority = "remote" | "local";
+
 export type DualWriteOptions = {
   localUserId: string;
   localAgentId: string;
+  priority?: DualWritePriority;
   syncOnResume: boolean;
   syncBatchSize: number;
   syncMinIntervalMs: number;
@@ -51,6 +54,7 @@ export class DualWriteClient {
   private local: LocalSqliteStore;
   private localUserId: string;
   private localAgentId: string;
+  private priority: DualWritePriority;
   private syncOnResume: boolean;
   private syncBatchSize: number;
   private syncMinIntervalMs: number;
@@ -67,6 +71,7 @@ export class DualWriteClient {
     this.local = local;
     this.localUserId = options.localUserId;
     this.localAgentId = options.localAgentId;
+    this.priority = options.priority ?? "remote";
     this.syncOnResume = options.syncOnResume;
     this.syncBatchSize = options.syncBatchSize;
     this.syncMinIntervalMs = options.syncMinIntervalMs;
@@ -98,6 +103,10 @@ export class DualWriteClient {
     content: string,
     options: { infer?: boolean; metadata?: Record<string, unknown> } = {},
   ): Promise<PowerMemAddResult[]> {
+    if (this.priority === "local") {
+      return this.addLocalFirst(content, options);
+    }
+
     try {
       const created = await this.remote.add(content, options);
       if (created.length > 0) {
@@ -148,64 +157,121 @@ export class DualWriteClient {
     }
   }
 
+  private async addLocalFirst(
+    content: string,
+    options: { infer?: boolean; metadata?: Record<string, unknown> } = {},
+  ): Promise<PowerMemAddResult[]> {
+    const localId = this.local.addLocalMemory({
+      content,
+      metadata: options.metadata,
+      userId: this.localUserId,
+      agentId: this.localAgentId,
+    });
+    await this.upsertEmbedding(localId, content);
+    this.local.enqueuePending({
+      localMemoryId: localId,
+      content,
+      metadata: options.metadata,
+      userId: this.localUserId,
+      agentId: this.localAgentId,
+      infer: options.infer ?? true,
+    });
+    void this.syncPending("local-add");
+    return [
+      {
+        memory_id: String(localId),
+        content,
+        user_id: this.localUserId,
+        agent_id: this.localAgentId,
+        metadata: options.metadata,
+      },
+    ];
+  }
+
   async search(query: string, limit = 5): Promise<PowerMemSearchResult[]> {
-    try {
-      const results = await this.remote.search(query, limit);
-      if (results.length > 0) {
-        for (const row of results) {
-          const remoteId = String(row.memory_id ?? "");
-          if (!remoteId) continue;
-          const localId = this.local.upsertRemoteMemory({
-            remoteId,
-            content: row.content,
-            metadata: row.metadata,
-            userId: this.localUserId,
-            agentId: this.localAgentId,
-          });
-          // Do not await: local embed can be slow or fail (e.g. fetch to embedding API);
-          // serial await here blocks before_agent_start / autoRecall for minutes.
-          void this.upsertEmbedding(localId, row.content);
-        }
+    if (this.priority === "local") {
+      const localResults = await this.searchLocal(query, limit);
+      if (localResults.length > 0) {
+        void this.syncPending("local-search-success");
+        return localResults;
       }
-      void this.syncPending("remote-search-success");
-      return results;
+      try {
+        return await this.searchRemoteAndCache(query, limit, "local-search-miss");
+      } catch (err) {
+        this.logger?.warn?.(`dual-write: remote search failed after local miss: ${String(err)}`);
+        return [];
+      }
+    }
+
+    try {
+      return await this.searchRemoteAndCache(query, limit, "remote-search-success");
     } catch (err) {
       this.logger?.warn?.(`dual-write: remote search failed, fallback to local: ${String(err)}`);
-      const provider = await this.embedding?.get();
-      if (provider) {
-        try {
-          const embedding = await provider.embed(query);
-          const vectorRows = this.local.searchVector({
-            embedding,
-            limit,
-            userId: this.localUserId,
-            agentId: this.localAgentId,
-          });
-          if (vectorRows.length > 0) {
-            return vectorRows.map((row) => ({
-              memory_id: row.remote_id ?? String(row.id),
-              content: row.content,
-              score: row.score,
-              metadata: row.metadata,
-            }));
-          }
-        } catch (embedErr) {
-          this.logger?.warn?.(`dual-write: local vector search failed: ${String(embedErr)}`);
-        }
-      }
-      const rows = this.local.search({
-        query,
-        limit,
-        userId: this.localUserId,
-        agentId: this.localAgentId,
-      });
-      return rows.map((row) => ({
-        memory_id: row.remote_id ?? String(row.id),
-        content: row.content,
-        score: row.score,
-        metadata: row.metadata,
-      }));
+      return this.searchLocal(query, limit);
     }
+  }
+
+  private async searchRemoteAndCache(
+    query: string,
+    limit: number,
+    syncTrigger: string,
+  ): Promise<PowerMemSearchResult[]> {
+    const results = await this.remote.search(query, limit);
+    if (results.length > 0) {
+      for (const row of results) {
+        const remoteId = String(row.memory_id ?? "");
+        if (!remoteId) continue;
+        const localId = this.local.upsertRemoteMemory({
+          remoteId,
+          content: row.content,
+          metadata: row.metadata,
+          userId: this.localUserId,
+          agentId: this.localAgentId,
+        });
+        // Do not await: local embed can be slow or fail (e.g. fetch to embedding API);
+        // serial await here blocks before_agent_start / autoRecall for minutes.
+        void this.upsertEmbedding(localId, row.content);
+      }
+    }
+    void this.syncPending(syncTrigger);
+    return results;
+  }
+
+  private async searchLocal(query: string, limit: number): Promise<PowerMemSearchResult[]> {
+    const provider = await this.embedding?.get();
+    if (provider) {
+      try {
+        const embedding = await provider.embed(query);
+        const vectorRows = this.local.searchVector({
+          embedding,
+          limit,
+          userId: this.localUserId,
+          agentId: this.localAgentId,
+        });
+        if (vectorRows.length > 0) {
+          return vectorRows.map((row) => ({
+            memory_id: row.remote_id ?? String(row.id),
+            content: row.content,
+            score: row.score,
+            metadata: row.metadata,
+          }));
+        }
+      } catch (embedErr) {
+        this.logger?.warn?.(`dual-write: local vector search failed: ${String(embedErr)}`);
+      }
+    }
+    const rows = this.local.search({
+      query,
+      limit,
+      userId: this.localUserId,
+      agentId: this.localAgentId,
+    });
+    return rows.map((row) => ({
+      memory_id: row.remote_id ?? String(row.id),
+      content: row.content,
+      score: row.score,
+      metadata: row.metadata,
+    }));
   }
 
   async delete(memoryId: number | string): Promise<void> {

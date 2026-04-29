@@ -332,6 +332,7 @@ const memoryPlugin = {
         return new DualWriteClient(httpClient, localStore, {
           localUserId: localIdentity.userId,
           localAgentId: localIdentity.agentId,
+          priority: cfg.dualWritePriority ?? "remote",
           syncOnResume: cfg.syncOnResume !== false,
           syncBatchSize: cfg.syncBatchSize ?? 50,
           syncMinIntervalMs: cfg.syncMinIntervalMs ?? 5000,

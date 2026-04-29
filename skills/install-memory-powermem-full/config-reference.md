@@ -58,6 +58,7 @@ Quick reference for skill **`install-memory-powermem-full`**. See **SKILL.md** i
 | `userId` | auto | Omit or set to `auto` to generate a stable ID saved under `<stateDir>/powermem/identity.json`. |
 | `agentId` | auto | Omit or set to `auto` to generate a stable ID saved under `<stateDir>/powermem/identity.json`. |
 | `dualWrite` | `false` | HTTP only: remote + local SQLite dual-write. |
+| `dualWritePriority` | `remote` | Dual-write priority: `remote` tries PowerMem first and falls back to local SQLite; `local` writes/searches SQLite first and syncs to remote. |
 | `localDbPath` | — | Local SQLite path for dual-write. |
 | `localUserId` | — | Local namespace for dual-write (defaults to `userId`). |
 | `localAgentId` | — | Local namespace for dual-write (defaults to `agentId`). |
