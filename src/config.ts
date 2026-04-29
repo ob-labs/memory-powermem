@@ -28,6 +28,7 @@ function resolveEnvVars(value: string): string {
 
 export type PowerMemMode = "http" | "cli";
 export type PowerMemHttpApiVersion = "v1" | "v2";
+export type DualWritePriority = "remote" | "local";
 
 export type PowerMemConfig = {
   mode: PowerMemMode;
@@ -66,6 +67,7 @@ export type PowerMemConfig = {
   debugPerfLog?: boolean;
   perfSlowMs?: number;
   dualWrite?: boolean;
+  dualWritePriority?: DualWritePriority;
   localDbPath?: string;
   localUserId?: string;
   localAgentId?: string;
@@ -112,6 +114,7 @@ const ALLOWED_KEYS = [
   "debugPerfLog",
   "perfSlowMs",
   "dualWrite",
+  "dualWritePriority",
   "localDbPath",
   "localUserId",
   "localAgentId",
@@ -257,6 +260,7 @@ export const powerMemConfigSchema = {
       debugPerfLog: cfg.debugPerfLog === true,
       perfSlowMs: toPositiveInt(cfg.perfSlowMs, 800, 1, 600000),
       dualWrite: cfg.dualWrite === true,
+      dualWritePriority: cfg.dualWritePriority === "local" ? "local" : "remote",
       localDbPath,
       localUserId:
         typeof cfg.localUserId === "string" && cfg.localUserId.trim()
@@ -372,6 +376,7 @@ export const DEFAULT_PLUGIN_CONFIG: PowerMemConfig = {
   debugPerfLog: false,
   perfSlowMs: 800,
   dualWrite: false,
+  dualWritePriority: "remote",
   localDbPath: undefined,
   localUserId: undefined,
   localAgentId: undefined,

@@ -303,6 +303,7 @@ openclaw ltm search "咖啡"
 | `experienceRecall` | 否 | 召回结果是否包含经验，默认 `true`。 |
 | `inferOnAdd` | 否 | 写入时是否用 PowerMem 智能抽取，默认 `true`。 |
 | `dualWrite` | 否 | 仅 HTTP：远端 + 本地 SQLite 双写，远端失败自动排队补传。 |
+| `dualWritePriority` | 否 | 双写优先级：`"remote"`（默认）先远端 PowerMem、失败兜底本地 SQLite；`"local"` 先写/查 SQLite，再同步到远端。 |
 | `localDbPath` | 否 | 本地 SQLite 路径（`dualWrite`）。 |
 | `localUserId` | 否 | 本地命名空间（`dualWrite`，默认 `userId`）。 |
 | `localAgentId` | 否 | 本地命名空间（`dualWrite`，默认 `agentId`）。 |
