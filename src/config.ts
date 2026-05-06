@@ -64,6 +64,18 @@ export type PowerMemConfig = {
   autoExperience: boolean;
   experienceRecall: boolean;
   inferOnAdd: boolean;
+  /** One-time import of existing OpenClaw markdown memories on service start. */
+  importMarkdownOnStart?: boolean;
+  /** Files/directories to import, relative to the OpenClaw workspace unless absolute. */
+  importMarkdownPaths?: string[];
+  /** Max markdown file size to import. Default 10 MiB. */
+  importMarkdownMaxFileBytes?: number;
+  /** Delay between imported chunks to avoid startup write bursts. Default 300ms. */
+  importMarkdownBatchDelayMs?: number;
+  /** Optional hard cap on imported markdown files per run. Undefined = no cap. */
+  importMarkdownMaxFiles?: number;
+  /** Optional hard cap on imported chunks per run. Undefined = no cap. */
+  importMarkdownMaxChunks?: number;
   debugPerfLog?: boolean;
   perfSlowMs?: number;
   dualWrite?: boolean;
@@ -111,6 +123,12 @@ const ALLOWED_KEYS = [
   "autoExperience",
   "experienceRecall",
   "inferOnAdd",
+  "importMarkdownOnStart",
+  "importMarkdownPaths",
+  "importMarkdownMaxFileBytes",
+  "importMarkdownBatchDelayMs",
+  "importMarkdownMaxFiles",
+  "importMarkdownMaxChunks",
   "debugPerfLog",
   "perfSlowMs",
   "dualWrite",
@@ -230,6 +248,18 @@ export const powerMemConfigSchema = {
     const syncBaseDelayMs = toPositiveInt(cfg.syncBaseDelayMs, 5000, 1000, 600000);
     const syncMaxDelayMs = toPositiveInt(cfg.syncMaxDelayMs, 60000, 1000, 3600000);
     const syncMaxRetries = toPositiveInt(cfg.syncMaxRetries, 10, 0, 100);
+    const importMarkdownBatchDelayMs = toPositiveInt(
+      cfg.importMarkdownBatchDelayMs,
+      300,
+      0,
+      60000,
+    );
+    const importMarkdownMaxFileBytes = toPositiveInt(
+      cfg.importMarkdownMaxFileBytes,
+      10 * 1024 * 1024,
+      1,
+      1024 * 1024 * 1024,
+    );
 
     return {
       mode,
@@ -257,6 +287,12 @@ export const powerMemConfigSchema = {
       autoExperience: cfg.autoExperience !== false,
       experienceRecall: cfg.experienceRecall !== false,
       inferOnAdd: cfg.inferOnAdd !== false,
+      importMarkdownOnStart: cfg.importMarkdownOnStart === true,
+      importMarkdownPaths: parseStringList(cfg.importMarkdownPaths),
+      importMarkdownMaxFileBytes,
+      importMarkdownBatchDelayMs,
+      importMarkdownMaxFiles: toOptionalPositiveInt(cfg.importMarkdownMaxFiles, 1, 100000),
+      importMarkdownMaxChunks: toOptionalPositiveInt(cfg.importMarkdownMaxChunks, 1, 1000000),
       debugPerfLog: cfg.debugPerfLog === true,
       perfSlowMs: toPositiveInt(cfg.perfSlowMs, 800, 1, 600000),
       dualWrite: cfg.dualWrite === true,
@@ -322,6 +358,24 @@ function toPositiveInt(
   return fallback;
 }
 
+function toOptionalPositiveInt(v: unknown, min: number, max: number): number | undefined {
+  if (v === undefined || v === null || v === "") {
+    return undefined;
+  }
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const n = Math.floor(v);
+    return n >= min ? Math.min(max, n) : undefined;
+  }
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) {
+      const floored = Math.floor(n);
+      return floored >= min ? Math.min(max, floored) : undefined;
+    }
+  }
+  return undefined;
+}
+
 function parseHeaderMap(value: unknown): Record<string, string> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -333,6 +387,17 @@ function parseHeaderMap(value: unknown): Record<string, string> | undefined {
   return Object.fromEntries(
     entries.map(([key, val]) => [key, resolveEnvVars(String(val))]),
   ) as Record<string, string>;
+}
+
+function parseStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const items = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return items.length > 0 ? items : undefined;
 }
 
 function pruneUndefined<T extends Record<string, unknown>>(value: T): T | undefined {
@@ -373,6 +438,12 @@ export const DEFAULT_PLUGIN_CONFIG: PowerMemConfig = {
   autoExperience: true,
   experienceRecall: true,
   inferOnAdd: true,
+  importMarkdownOnStart: false,
+  importMarkdownPaths: undefined,
+  importMarkdownMaxFileBytes: 10 * 1024 * 1024,
+  importMarkdownBatchDelayMs: 300,
+  importMarkdownMaxFiles: undefined,
+  importMarkdownMaxChunks: undefined,
   debugPerfLog: false,
   perfSlowMs: 800,
   dualWrite: false,

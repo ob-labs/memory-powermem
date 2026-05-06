@@ -302,6 +302,12 @@ openclaw ltm search "咖啡"
 | `autoExperience` | 否 | LLM 自动提炼经验，默认 `true`。 |
 | `experienceRecall` | 否 | 召回结果是否包含经验，默认 `true`。 |
 | `inferOnAdd` | 否 | 写入时是否用 PowerMem 智能抽取，默认 `true`。 |
+| `importMarkdownOnStart` | 否 | 启动时一次性导入已有 OpenClaw markdown 记忆，默认 `false`。 |
+| `importMarkdownPaths` | 否 | 要导入的 markdown 文件或目录。默认扫描 `memory/`、`MEMORY.md`、`USER.md`；相对路径基于 OpenClaw workspace。 |
+| `importMarkdownMaxFileBytes` | 否 | 单个 markdown 文件最大大小，默认 `10485760`（10 MiB）；超出的文件标记为 `skipped_too_large`。 |
+| `importMarkdownBatchDelayMs` | 否 | 每个导入 chunk 之间的延迟，用于避免写入洪峰；默认 `300`。 |
+| `importMarkdownMaxFiles` | 否 | 单次导入的 markdown 文件硬上限；不填表示不限制。 |
+| `importMarkdownMaxChunks` | 否 | 单次导入的 markdown chunk 硬上限；不填表示不限制。 |
 | `dualWrite` | 否 | 仅 HTTP：远端 + 本地 SQLite 双写，远端失败自动排队补传。 |
 | `dualWritePriority` | 否 | 双写优先级：`"remote"`（默认）先远端 PowerMem、失败兜底本地 SQLite；`"local"` 先写/查 SQLite，再同步到远端。 |
 | `localDbPath` | 否 | 本地 SQLite 路径（`dualWrite`）。 |
@@ -342,6 +348,8 @@ openclaw ltm search "咖啡"
 - `openclaw ltm search <query> [--limit n]` — 搜索记忆
 - `openclaw ltm health` — 检查 PowerMem 服务健康
 - `openclaw ltm add "<text>"` — 手动写入一条记忆
+- `openclaw ltm import-md [paths...] [--force] [--dry-run] [--delay-ms n] [--max-file-bytes n] [--max-files n] [--max-chunks n]` — 导入已有 markdown 记忆；不传路径时扫描 `memory/`、`MEMORY.md`、`USER.md`
+- `openclaw ltm import-md-status [paths...] [--json]` — 查看每个 markdown 文件的导入状态：已导入、已变更、跳过、失败或未导入
 
 ---
 

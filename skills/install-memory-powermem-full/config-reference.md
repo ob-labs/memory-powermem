@@ -55,6 +55,12 @@ Quick reference for skill **`install-memory-powermem-full`**. See **SKILL.md** i
 | `autoExperience` | `true` | Auto-extract experiences via LLM. |
 | `experienceRecall` | `true` | Include experiences in recall. |
 | `inferOnAdd` | `true` | PowerMem intelligent extraction on add. |
+| `importMarkdownOnStart` | `false` | One-time import of existing OpenClaw markdown memories on startup. |
+| `importMarkdownPaths` | `memory`, `MEMORY.md`, `USER.md` | Markdown files/directories to import; relative paths resolve from the OpenClaw workspace. |
+| `importMarkdownMaxFileBytes` | `10485760` | Max size for a single markdown file (10 MiB); larger files are marked `skipped_too_large`. |
+| `importMarkdownBatchDelayMs` | `300` | Delay between imported chunks to avoid write bursts. |
+| `importMarkdownMaxFiles` | — | Optional hard cap on markdown files imported in one run. |
+| `importMarkdownMaxChunks` | — | Optional hard cap on markdown chunks imported in one run. |
 | `userId` | auto | Omit or set to `auto` to generate a stable ID saved under `<stateDir>/powermem/identity.json`. |
 | `agentId` | auto | Omit or set to `auto` to generate a stable ID saved under `<stateDir>/powermem/identity.json`. |
 | `dualWrite` | `false` | HTTP only: remote + local SQLite dual-write. |
@@ -96,6 +102,8 @@ Quick reference for skill **`install-memory-powermem-full`**. See **SKILL.md** i
 openclaw ltm health
 openclaw ltm add "Something to remember"
 openclaw ltm search "query"
+openclaw ltm import-md [paths...] [--force] [--dry-run] [--delay-ms n] [--max-file-bytes n] [--max-files n] [--max-chunks n]
+openclaw ltm import-md-status [paths...] [--json]
 
 openclaw config set plugins.slots.memory none
 openclaw config set plugins.slots.memory memory-powermem
