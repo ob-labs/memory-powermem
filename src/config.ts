@@ -89,6 +89,7 @@ export type PowerMemConfig = {
   syncBaseDelayMs?: number;
   syncMaxDelayMs?: number;
   syncMaxRetries?: number;
+  /** Local sqlite-vec embeddings for dual-write. Use `provider: "model_gateway"` (alias `chj_gateway`) for the CHJ internal gateway: path `/embeddings/{model}`, header `X-CHJ-GWToken`; env fallbacks `MODEL_GATEWAY_BASE_URL`, `MODEL_GATEWAY_GW_TOKEN`. */
   localVector?: {
     enabled?: boolean;
     provider?: string;
