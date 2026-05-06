@@ -222,9 +222,17 @@ deploy_from_repo() {
   if [[ -f "README.md" ]]; then
     cp README.md "${PLUGIN_DEST}/" || true
   fi
+  if [[ -d "scripts" ]]; then
+    rm -rf "${PLUGIN_DEST}/scripts"
+    cp -R scripts "${PLUGIN_DEST}/"
+  fi
   info "Installing plugin dependencies..."
-  (cd "${PLUGIN_DEST}" && npm install --no-audit --no-fund) || {
+  (cd "${PLUGIN_DEST}" && npm install --no-audit --no-fund --ignore-scripts=false) || {
     err "npm install failed in ${PLUGIN_DEST}"
+    exit 1
+  }
+  (cd "${PLUGIN_DEST}" && npm run native:verify) || {
+    err "native dependency verification failed in ${PLUGIN_DEST}"
     exit 1
   }
   info "Plugin deployed: ${PLUGIN_DEST}"
@@ -243,6 +251,7 @@ deploy_from_github() {
     "openclaw-powermem-env.ts"
     "openclaw.plugin.json"
     "package.json"
+    "scripts/ensure-native-deps.cjs"
     "tsconfig.json"
     ".gitignore"
   )
@@ -250,6 +259,7 @@ deploy_from_github() {
   info "Downloading plugin from ${REPO}@${BRANCH}..."
   for f in "${files[@]}"; do
     local url="${gh_raw}/${f}"
+    mkdir -p "$(dirname "${PLUGIN_DEST}/${f}")"
     if curl -fsSL --connect-timeout 15 --max-time 60 -o "${PLUGIN_DEST}/${f}" "${url}" 2>/dev/null; then
       echo "  ${f} ✓"
     else
@@ -260,8 +270,12 @@ deploy_from_github() {
     fi
   done
   info "Installing plugin dependencies..."
-  (cd "${PLUGIN_DEST}" && npm install --no-audit --no-fund) || {
+  (cd "${PLUGIN_DEST}" && npm install --no-audit --no-fund --ignore-scripts=false) || {
     err "npm install failed in ${PLUGIN_DEST}"
+    exit 1
+  }
+  (cd "${PLUGIN_DEST}" && npm run native:verify) || {
+    err "native dependency verification failed in ${PLUGIN_DEST}"
     exit 1
   }
   info "Plugin deployed: ${PLUGIN_DEST}"

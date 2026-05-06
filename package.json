@@ -10,9 +10,12 @@
   "files": [
     "src",
     "lib",
+    "scripts",
     "openclaw.plugin.json"
   ],
   "scripts": {
+    "postinstall": "node scripts/ensure-native-deps.cjs",
+    "native:verify": "node scripts/ensure-native-deps.cjs",
     "test": "vitest run",
     "lint": "tsc --noEmit"
   },
@@ -46,7 +49,8 @@
   "license": "Apache-2.0",
   "pnpm": {
     "onlyBuiltDependencies": [
-      "better-sqlite3"
+      "better-sqlite3",
+      "sqlite-vec"
     ]
   }
 }
