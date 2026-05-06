@@ -55,6 +55,8 @@ declare module "openclaw/plugin-sdk/memory-core" {
 }
 
 declare module "openclaw/plugin-sdk" {
+  export type { OpenClawPluginApi } from "openclaw/plugin-sdk/memory-core";
+
   export type OpenClawPluginServiceContext = {
     config: unknown;
     workspaceDir?: string;
