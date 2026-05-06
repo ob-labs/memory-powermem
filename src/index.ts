@@ -9,6 +9,7 @@
 
 import { Type } from "@sinclair/typebox";
 import type {
+  OpenClawMemoryPlugin,
   OpenClawPluginApi,
   OpenClawPluginCliContext,
 } from "openclaw/plugin-sdk/memory-core";
@@ -28,9 +29,8 @@ import { dirname, join } from "node:path";
 import { PowerMemClient, type PowerMemSearchResult } from "./client.js";
 import { PowerMemV2Client } from "./client-v2.js";
 import { PowerMemCLIClient } from "./client-cli.js";
-import { DualWriteClient } from "./dual-write-client.js";
+import type { DualWriteClient } from "./dual-write-client.js";
 import { createLocalEmbeddingFactory } from "./local-embedding.js";
-import { LocalSqliteStore } from "./local-sqlite.js";
 import { callLlm } from "./llm.js";
 import { WalSession, walCapture as walCaptureCore } from "./wal.js";
 import {
@@ -219,7 +219,7 @@ const memoryPlugin = {
   kind: "memory" as const,
   configSchema: powerMemConfigSchema,
 
-  register(api: OpenClawPluginApi) {
+  async register(api: OpenClawPluginApi) {
     const gw = api as GatewayApi;
     const raw = api.pluginConfig;
     const toParse =
@@ -287,19 +287,28 @@ const memoryPlugin = {
       agentId: cfg.localAgentId ?? identity.agentId,
     });
 
-    const localStore = cfg.dualWrite
-      ? new LocalSqliteStore(resolveLocalDbPath(cfg, stateDir), {
-          logger: api.logger,
-          vector: {
-            enabled: cfg.localVector?.enabled ?? (cfg.dualWrite === true),
-            extensionPath: cfg.localVector?.extensionPath,
-          },
-        })
-      : null;
+    /** Dual-write SQLite + sqlite-vec load only when HTTP + dualWrite (avoids native better-sqlite3 at startup otherwise). */
+    const needsDualWriteSqlite = cfg.dualWrite === true && cfg.mode === "http";
+
+    let DualWriteClientCtor: typeof import("./dual-write-client.js").DualWriteClient | undefined;
+    let localStore: InstanceType<typeof import("./local-sqlite.js").LocalSqliteStore> | null = null;
+
+    if (needsDualWriteSqlite) {
+      const sqliteMod = await import("./local-sqlite.js");
+      const dualMod = await import("./dual-write-client.js");
+      DualWriteClientCtor = dualMod.DualWriteClient;
+      localStore = new sqliteMod.LocalSqliteStore(resolveLocalDbPath(cfg, stateDir), {
+        logger: api.logger,
+        vector: {
+          enabled: cfg.localVector?.enabled ?? true,
+          extensionPath: cfg.localVector?.extensionPath,
+        },
+      });
+    }
 
     const embeddingFactoryCache = new Map<string, ReturnType<typeof createLocalEmbeddingFactory> | null>();
     const getLocalEmbeddingFactory = (ctxAgentId?: string) => {
-      if (!cfg.dualWrite) return null;
+      if (!needsDualWriteSqlite) return null;
       const key = ctxAgentId ?? "__default__";
       if (embeddingFactoryCache.has(key)) {
         return embeddingFactoryCache.get(key) ?? null;
@@ -332,10 +341,10 @@ const memoryPlugin = {
       }
 
       const httpClient = buildHttpClient(identity);
-      if (cfg.dualWrite && localStore) {
+      if (needsDualWriteSqlite && localStore && DualWriteClientCtor) {
         const localIdentity = resolveLocalIdentity(identity);
         const localEmbedding = getLocalEmbeddingFactory(ctxAgentId);
-        return new DualWriteClient(httpClient, localStore, {
+        return new DualWriteClientCtor(httpClient, localStore, {
           localUserId: localIdentity.userId,
           localAgentId: localIdentity.agentId,
           priority: cfg.dualWritePriority ?? "remote",
@@ -437,7 +446,7 @@ const memoryPlugin = {
     }
 
     const client = getClientForAgent();
-    if (cfg.dualWrite && "syncPending" in client) {
+    if (needsDualWriteSqlite && "syncPending" in client) {
       void (client as DualWriteClient).syncPending("startup");
     }
     const markdownImportMarkerPath = join(stateDir, "powermem", "markdown-imports.json");
@@ -505,7 +514,7 @@ const memoryPlugin = {
     const modeLabel =
       cfg.mode === "cli"
         ? `cli (${resolvedPmem})`
-        : `${cfg.baseUrl}${cfg.httpApiVersion === "v2" ? " (v2)" : ""}${cfg.dualWrite ? " + sqlite" : ""}`;
+        : `${cfg.baseUrl}${cfg.httpApiVersion === "v2" ? " (v2)" : ""}${needsDualWriteSqlite ? " + sqlite" : ""}`;
 
     api.logger.info(
       `memory-powermem: plugin registered (mode: ${cfg.mode}, ${modeLabel}, user: ${userId}, agent: ${agentId})`,
@@ -2061,6 +2070,6 @@ const memoryPlugin = {
       },
     });
   },
-};
+} satisfies OpenClawMemoryPlugin;
 
 export default memoryPlugin;
