@@ -68,11 +68,7 @@ function normalizeBaseUrl(provider: string, baseUrl?: string): string | undefine
   const trimmed = baseUrl?.trim();
   if (provider === "model_gateway") {
     const cleaned = trimmed?.replace(/\/+$/, "");
-    if (cleaned) {
-      return cleaned;
-    }
-    const fromEnv = process.env.MODEL_GATEWAY_BASE_URL?.trim().replace(/\/+$/, "");
-    return fromEnv || undefined;
+    return cleaned || undefined;
   }
   if (!trimmed) {
     if (provider === "ollama") {
@@ -290,7 +286,6 @@ async function createModelGatewayEmbeddingProvider(params: {
       params.cfg.apiKey,
     )) ??
     params.cfg.apiKey?.trim() ??
-    process.env.MODEL_GATEWAY_GW_TOKEN?.trim() ??
     "";
 
   const headers: Record<string, string> = {
@@ -302,7 +297,7 @@ async function createModelGatewayEmbeddingProvider(params: {
   }
   if (!headers["X-CHJ-GWToken"]) {
     params.logger.warn?.(
-      "dual-write: model_gateway requires X-CHJ-GWToken (localVector.apiKey, MODEL_GATEWAY_GW_TOKEN, or headers)",
+      "dual-write: model_gateway requires X-CHJ-GWToken (localVector.apiKey, OpenClaw model auth, or headers)",
     );
     return null;
   }
@@ -310,7 +305,7 @@ async function createModelGatewayEmbeddingProvider(params: {
   const baseUrl = params.cfg.baseUrl ?? normalizeBaseUrl("model_gateway");
   if (!baseUrl) {
     params.logger.warn?.(
-      "dual-write: model_gateway requires baseUrl (localVector.baseUrl or MODEL_GATEWAY_BASE_URL)",
+      "dual-write: model_gateway requires baseUrl (localVector.baseUrl or agents memorySearch remote baseUrl)",
     );
     return null;
   }
