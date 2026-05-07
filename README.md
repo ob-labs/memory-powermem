@@ -301,6 +301,12 @@ After installing, uninstalling, or changing config, restart the OpenClaw gateway
 | `autoExperience` | No | Auto-extract procedural experiences via LLM; default `true`. |
 | `experienceRecall` | No | Include experiences in recall results; default `true`. |
 | `inferOnAdd` | No | Use PowerMem intelligent extraction when adding; default `true`. |
+| `importMarkdownOnStart` | No | One-time import of existing OpenClaw markdown memories on startup; default `false`. |
+| `importMarkdownPaths` | No | Markdown files/directories to import. Defaults to `memory/`, `MEMORY.md`, and `USER.md`; relative paths resolve from the OpenClaw workspace. |
+| `importMarkdownMaxFileBytes` | No | Max size for a single markdown file; default `10485760` (10 MiB). Larger files are marked `skipped_too_large`. |
+| `importMarkdownBatchDelayMs` | No | Delay between imported chunks to avoid write bursts; default `300`. |
+| `importMarkdownMaxFiles` | No | Optional hard cap on markdown files imported in one run. Empty means no cap. |
+| `importMarkdownMaxChunks` | No | Optional hard cap on markdown chunks imported in one run. Empty means no cap. |
 | `dualWrite` | No | HTTP only: write to remote + local SQLite and queue failed writes. |
 | `dualWritePriority` | No | Dual-write priority: `"remote"` (default) tries PowerMem first and falls back to local SQLite; `"local"` writes/searches SQLite first and syncs to remote. |
 | `localDbPath` | No | Local SQLite path for `dualWrite`. |
@@ -341,6 +347,8 @@ Exposed to OpenClaw agents:
 - `openclaw ltm search <query> [--limit n]` — Search memories.
 - `openclaw ltm health` — Check PowerMem service health.
 - `openclaw ltm add "<text>"` — Manually store one memory.
+- `openclaw ltm import-md [paths...] [--force] [--dry-run] [--delay-ms n] [--max-file-bytes n] [--max-files n] [--max-chunks n]` — Import existing markdown memories. With no paths, scans `memory/`, `MEMORY.md`, and `USER.md`.
+- `openclaw ltm import-md-status [paths...] [--json]` — Show per-file markdown import status: imported, changed, skipped, failed, or not imported.
 
 ---
 

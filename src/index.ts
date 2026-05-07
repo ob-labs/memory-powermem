@@ -9,6 +9,7 @@
 
 import { Type } from "@sinclair/typebox";
 import type {
+  OpenClawMemoryPlugin,
   OpenClawPluginApi,
   OpenClawPluginCliContext,
 } from "openclaw/plugin-sdk/memory-core";
@@ -28,9 +29,8 @@ import { dirname, join } from "node:path";
 import { PowerMemClient, type PowerMemSearchResult } from "./client.js";
 import { PowerMemV2Client } from "./client-v2.js";
 import { PowerMemCLIClient } from "./client-cli.js";
-import { DualWriteClient } from "./dual-write-client.js";
+import type { DualWriteClient } from "./dual-write-client.js";
 import { createLocalEmbeddingFactory } from "./local-embedding.js";
-import { LocalSqliteStore } from "./local-sqlite.js";
 import { callLlm } from "./llm.js";
 import { WalSession, walCapture as walCaptureCore } from "./wal.js";
 import {
@@ -38,6 +38,12 @@ import {
   buildPowermemCliProcessEnv,
 } from "./openclaw-powermem-env.js";
 import { resolvePmemExecutable } from "./resolve-powermem-cli.js";
+import {
+  buildMarkdownImportMarkerKey,
+  DEFAULT_MARKDOWN_IMPORT_PATHS,
+  getMarkdownImportStatus,
+  importMarkdownMemories,
+} from "./markdown-import.js";
 
 type GatewayApi = OpenClawPluginApi & {
   config?: unknown;
@@ -213,7 +219,7 @@ const memoryPlugin = {
   kind: "memory" as const,
   configSchema: powerMemConfigSchema,
 
-  register(api: OpenClawPluginApi) {
+  async register(api: OpenClawPluginApi) {
     const gw = api as GatewayApi;
     const raw = api.pluginConfig;
     const toParse =
@@ -281,19 +287,28 @@ const memoryPlugin = {
       agentId: cfg.localAgentId ?? identity.agentId,
     });
 
-    const localStore = cfg.dualWrite
-      ? new LocalSqliteStore(resolveLocalDbPath(cfg, stateDir), {
-          logger: api.logger,
-          vector: {
-            enabled: cfg.localVector?.enabled ?? (cfg.dualWrite === true),
-            extensionPath: cfg.localVector?.extensionPath,
-          },
-        })
-      : null;
+    /** Dual-write SQLite + sqlite-vec load only when HTTP + dualWrite (avoids native better-sqlite3 at startup otherwise). */
+    const needsDualWriteSqlite = cfg.dualWrite === true && cfg.mode === "http";
+
+    let DualWriteClientCtor: typeof import("./dual-write-client.js").DualWriteClient | undefined;
+    let localStore: InstanceType<typeof import("./local-sqlite.js").LocalSqliteStore> | null = null;
+
+    if (needsDualWriteSqlite) {
+      const sqliteMod = await import("./local-sqlite.js");
+      const dualMod = await import("./dual-write-client.js");
+      DualWriteClientCtor = dualMod.DualWriteClient;
+      localStore = new sqliteMod.LocalSqliteStore(resolveLocalDbPath(cfg, stateDir), {
+        logger: api.logger,
+        vector: {
+          enabled: cfg.localVector?.enabled ?? true,
+          extensionPath: cfg.localVector?.extensionPath,
+        },
+      });
+    }
 
     const embeddingFactoryCache = new Map<string, ReturnType<typeof createLocalEmbeddingFactory> | null>();
     const getLocalEmbeddingFactory = (ctxAgentId?: string) => {
-      if (!cfg.dualWrite) return null;
+      if (!needsDualWriteSqlite) return null;
       const key = ctxAgentId ?? "__default__";
       if (embeddingFactoryCache.has(key)) {
         return embeddingFactoryCache.get(key) ?? null;
@@ -326,10 +341,10 @@ const memoryPlugin = {
       }
 
       const httpClient = buildHttpClient(identity);
-      if (cfg.dualWrite && localStore) {
+      if (needsDualWriteSqlite && localStore && DualWriteClientCtor) {
         const localIdentity = resolveLocalIdentity(identity);
         const localEmbedding = getLocalEmbeddingFactory(ctxAgentId);
-        return new DualWriteClient(httpClient, localStore, {
+        return new DualWriteClientCtor(httpClient, localStore, {
           localUserId: localIdentity.userId,
           localAgentId: localIdentity.agentId,
           priority: cfg.dualWritePriority ?? "remote",
@@ -431,21 +446,87 @@ const memoryPlugin = {
     }
 
     const client = getClientForAgent();
-    if (cfg.dualWrite && "syncPending" in client) {
+    if (needsDualWriteSqlite && "syncPending" in client) {
       void (client as DualWriteClient).syncPending("startup");
     }
+    const markdownImportMarkerPath = join(stateDir, "powermem", "markdown-imports.json");
+    const configuredMarkdownImportPaths =
+      cfg.importMarkdownPaths && cfg.importMarkdownPaths.length > 0
+        ? cfg.importMarkdownPaths
+        : [...DEFAULT_MARKDOWN_IMPORT_PATHS];
+    const runMarkdownImport = async (params: {
+      workspaceDir?: string;
+      paths?: readonly string[];
+      force?: boolean;
+      dryRun?: boolean;
+      maxFileBytes?: number;
+      batchDelayMs?: number;
+      maxFiles?: number;
+      maxChunks?: number;
+      source: "startup" | "cli";
+    }) => {
+      const paths = params.paths && params.paths.length > 0
+        ? params.paths
+        : configuredMarkdownImportPaths;
+      const markerKey = buildMarkdownImportMarkerKey({
+        userId,
+        agentId,
+        workspaceDir: params.workspaceDir,
+        paths,
+      });
+      return importMarkdownMemories({
+        client,
+        markerPath: markdownImportMarkerPath,
+        markerKey,
+        workspaceDir: params.workspaceDir,
+        paths,
+        infer: cfg.inferOnAdd,
+        force: params.force,
+        dryRun: params.dryRun,
+        maxFileBytes: params.maxFileBytes ?? cfg.importMarkdownMaxFileBytes,
+        batchDelayMs: params.batchDelayMs ?? cfg.importMarkdownBatchDelayMs,
+        maxFiles: params.maxFiles ?? cfg.importMarkdownMaxFiles,
+        maxChunks: params.maxChunks ?? cfg.importMarkdownMaxChunks,
+        source: params.source,
+        logger: api.logger,
+      });
+    };
+    const getMarkdownStatus = (params: { workspaceDir?: string; paths?: readonly string[] }) => {
+      const paths = params.paths && params.paths.length > 0
+        ? params.paths
+        : configuredMarkdownImportPaths;
+      const markerKey = buildMarkdownImportMarkerKey({
+        userId,
+        agentId,
+        workspaceDir: params.workspaceDir,
+        paths,
+      });
+      return getMarkdownImportStatus({
+        markerPath: markdownImportMarkerPath,
+        markerKey,
+        workspaceDir: params.workspaceDir,
+        paths,
+        maxFileBytes: cfg.importMarkdownMaxFileBytes,
+      });
+    };
     const resolvedPmem =
       cfg.mode === "cli" ? resolvePmemExecutable(cfg.pmemPath ?? DEFAULT_PMEM_PATH) : "";
     const modeLabel =
       cfg.mode === "cli"
         ? `cli (${resolvedPmem})`
-        : `${cfg.baseUrl}${cfg.httpApiVersion === "v2" ? " (v2)" : ""}${cfg.dualWrite ? " + sqlite" : ""}`;
+        : `${cfg.baseUrl}${cfg.httpApiVersion === "v2" ? " (v2)" : ""}${needsDualWriteSqlite ? " + sqlite" : ""}`;
 
     api.logger.info(
       `memory-powermem: plugin registered (mode: ${cfg.mode}, ${modeLabel}, user: ${userId}, agent: ${agentId})`,
     );
     if (perfEnabled) {
       api.logger.info(`memory-powermem: perf logging enabled (slow >= ${perfSlowMs}ms)`);
+    }
+
+    function parseOptionalCliInt(value: string | undefined): number | undefined {
+      if (!value || !value.trim()) return undefined;
+      const n = Number(value);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
     }
 
     // ========================================================================
@@ -1399,6 +1480,99 @@ const memoryPlugin = {
               perfLog("cli.ltm.add.total", cliAddStartedAt, { textLen: text.trim().length });
             }
           });
+
+        ltm
+          .command("import-md")
+          .description("Import existing OpenClaw markdown memory files")
+          .argument("[paths...]", "Markdown files or directories (default: memory/ MEMORY.md USER.md)")
+          .option("--force", "Import even if this workspace was already imported")
+          .option("--dry-run", "Scan and report files/chunks without writing memories")
+          .option("--delay-ms <n>", "Delay between imported chunks (default: config/importMarkdownBatchDelayMs)")
+          .option("--max-file-bytes <n>", "Max bytes for a single markdown file (default: config/importMarkdownMaxFileBytes)")
+          .option("--max-files <n>", "Max markdown files to import in this run")
+          .option("--max-chunks <n>", "Max chunks to import in this run")
+          .action(async (...args: unknown[]) => {
+            const cliImportStartedAt = perfNow();
+            const maybePaths = Array.isArray(args[0]) ? (args[0] as string[]) : [];
+            const opts = (args[1] ?? {}) as {
+              force?: boolean;
+              dryRun?: boolean;
+              delayMs?: string;
+              maxFileBytes?: string;
+              maxFiles?: string;
+              maxChunks?: string;
+            };
+            const delayMs = parseOptionalCliInt(opts.delayMs);
+            const maxFileBytes = parseOptionalCliInt(opts.maxFileBytes);
+            const maxFiles = parseOptionalCliInt(opts.maxFiles);
+            const maxChunks = parseOptionalCliInt(opts.maxChunks);
+            try {
+              const result = await runMarkdownImport({
+                workspaceDir: process.cwd(),
+                paths: maybePaths,
+                force: opts.force === true,
+                dryRun: opts.dryRun === true,
+                maxFileBytes,
+                batchDelayMs: delayMs,
+                maxFiles,
+                maxChunks,
+                source: "cli",
+              });
+              perfLog("cli.ltm.import_md", cliImportStartedAt, {
+                skipped: result.skipped,
+                reason: result.reason ?? null,
+                files: result.files,
+                chunks: result.chunks,
+                created: result.created,
+                limited: result.limited,
+                dryRun: opts.dryRun === true,
+              });
+              if (result.skipped) {
+                console.log(`Markdown import skipped: ${result.reason}.`);
+                return;
+              }
+              console.log(
+                `Markdown import completed: files=${result.files}, chunks=${result.chunks}, stored=${result.created}${result.limited ? " (limited)" : ""}.`,
+              );
+            } catch (err) {
+              console.error("Markdown import failed:", err);
+              process.exitCode = 1;
+            }
+          });
+
+        ltm
+          .command("import-md-status")
+          .description("Show markdown memory import status by file")
+          .argument("[paths...]", "Markdown files or directories (default: memory/ MEMORY.md USER.md)")
+          .option("--json", "Print machine-readable JSON")
+          .action((...args: unknown[]) => {
+            const maybePaths = Array.isArray(args[0]) ? (args[0] as string[]) : [];
+            const opts = (args[1] ?? {}) as { json?: boolean };
+            const status = getMarkdownStatus({
+              workspaceDir: process.cwd(),
+              paths: maybePaths,
+            });
+            if (opts.json === true) {
+              console.log(JSON.stringify(status, null, 2));
+              return;
+            }
+            console.log(`Markdown import marker: ${status.imported ? "found" : "not found"}`);
+            if (status.completedAt) {
+              console.log(`Completed at: ${status.completedAt}`);
+            }
+            console.log(`Workspace: ${status.workspaceDir}`);
+            if (status.files.length === 0) {
+              console.log("No markdown files found for the configured paths.");
+              return;
+            }
+            for (const file of status.files) {
+              const suffix =
+                file.error && file.status !== "skipped_too_large" ? ` (${file.error})` : "";
+              console.log(
+                `${file.status}\tchunks=${file.chunks}\tcreated=${file.created}\t${file.path}${suffix}`,
+              );
+            }
+          });
       },
       { commands: ["ltm"] },
     );
@@ -1847,7 +2021,7 @@ const memoryPlugin = {
 
     api.registerService({
       id: "memory-powermem",
-      start: async (_ctx: OpenClawPluginServiceContext) => {
+      start: async (ctx: OpenClawPluginServiceContext) => {
         try {
           const h = await client.health();
           const where =
@@ -1868,12 +2042,34 @@ const memoryPlugin = {
             `memory-powermem: health check failed (${hint}): ${String(err)}`,
           );
         }
+
+        if (cfg.importMarkdownOnStart) {
+          api.logger.info("memory-powermem: markdown import scheduled in background");
+          void runMarkdownImport({
+            workspaceDir: ctx.workspaceDir,
+            source: "startup",
+          })
+            .then((result) => {
+              if (result.skipped) {
+                api.logger.info(
+                  `memory-powermem: markdown import skipped (${result.reason ?? "unknown"})`,
+                );
+              } else {
+                api.logger.info(
+                  `memory-powermem: markdown import completed files=${result.files}, chunks=${result.chunks}, stored=${result.created}${result.limited ? " (limited)" : ""}`,
+                );
+              }
+            })
+            .catch((err) => {
+              api.logger.warn(`memory-powermem: markdown import failed: ${String(err)}`);
+            });
+        }
       },
       stop: (_ctx: OpenClawPluginServiceContext) => {
         api.logger.info("memory-powermem: stopped");
       },
     });
   },
-};
+} satisfies OpenClawMemoryPlugin;
 
 export default memoryPlugin;

@@ -96,6 +96,41 @@
       "label": "Infer on Add",
       "help": "Use PowerMem intelligent extraction when adding (infer=true)"
     },
+    "importMarkdownOnStart": {
+      "label": "Import markdown on start",
+      "advanced": true,
+      "help": "One-time import of existing OpenClaw markdown memories on service start. Defaults to memory/, MEMORY.md, and USER.md."
+    },
+    "importMarkdownPaths": {
+      "label": "Markdown import paths",
+      "advanced": true,
+      "placeholder": "[\"memory\", \"MEMORY.md\", \"USER.md\"]",
+      "help": "Files or directories to import when importMarkdownOnStart is enabled. Relative paths resolve from the OpenClaw workspace."
+    },
+    "importMarkdownMaxFileBytes": {
+      "label": "Markdown import max file bytes",
+      "advanced": true,
+      "placeholder": "10485760",
+      "help": "Max size for a single markdown file. Files above this are marked skipped_too_large. Default: 10 MiB."
+    },
+    "importMarkdownBatchDelayMs": {
+      "label": "Markdown import delay (ms)",
+      "advanced": true,
+      "placeholder": "300",
+      "help": "Delay between imported chunks to avoid startup write bursts. Default: 300ms."
+    },
+    "importMarkdownMaxFiles": {
+      "label": "Markdown import max files",
+      "advanced": true,
+      "placeholder": "",
+      "help": "Optional hard cap on markdown files imported in one run. Empty means no cap."
+    },
+    "importMarkdownMaxChunks": {
+      "label": "Markdown import max chunks",
+      "advanced": true,
+      "placeholder": "",
+      "help": "Optional hard cap on markdown chunks imported in one run. Empty means no cap."
+    },
     "debugPerfLog": {
       "label": "Debug performance logs",
       "advanced": true,
@@ -204,6 +239,15 @@
       "autoExperience": { "type": "boolean" },
       "experienceRecall": { "type": "boolean" },
       "inferOnAdd": { "type": "boolean" },
+      "importMarkdownOnStart": { "type": "boolean" },
+      "importMarkdownPaths": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "importMarkdownMaxFileBytes": { "type": "number" },
+      "importMarkdownBatchDelayMs": { "type": "number" },
+      "importMarkdownMaxFiles": { "type": "number" },
+      "importMarkdownMaxChunks": { "type": "number" },
       "debugPerfLog": { "type": "boolean" },
       "perfSlowMs": { "type": "number" },
       "dualWrite": { "type": "boolean" },

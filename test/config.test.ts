@@ -70,6 +70,29 @@ describe("powerMemConfigSchema", () => {
     expect(DEFAULT_PLUGIN_CONFIG.pmemPath).toBe("bundled");
     expect(DEFAULT_PLUGIN_CONFIG.useOpenClawModel).toBe(true);
     expect(DEFAULT_PLUGIN_CONFIG.dualWritePriority).toBe("remote");
+    expect(DEFAULT_PLUGIN_CONFIG.importMarkdownOnStart).toBe(false);
+    expect(DEFAULT_PLUGIN_CONFIG.importMarkdownMaxFileBytes).toBe(10 * 1024 * 1024);
+    expect(DEFAULT_PLUGIN_CONFIG.importMarkdownBatchDelayMs).toBe(300);
+    expect(DEFAULT_PLUGIN_CONFIG.importMarkdownMaxFiles).toBeUndefined();
+    expect(DEFAULT_PLUGIN_CONFIG.importMarkdownMaxChunks).toBeUndefined();
+  });
+
+  it("parses markdown import config", () => {
+    const cfg = powerMemConfigSchema.parse({
+      mode: "cli",
+      importMarkdownOnStart: true,
+      importMarkdownPaths: ["memory", "MEMORY.md", "", 123],
+      importMarkdownMaxFileBytes: "20971520",
+      importMarkdownBatchDelayMs: "250",
+      importMarkdownMaxFiles: "10",
+      importMarkdownMaxChunks: 20,
+    }) as PowerMemConfig;
+    expect(cfg.importMarkdownOnStart).toBe(true);
+    expect(cfg.importMarkdownPaths).toEqual(["memory", "MEMORY.md"]);
+    expect(cfg.importMarkdownMaxFileBytes).toBe(20 * 1024 * 1024);
+    expect(cfg.importMarkdownBatchDelayMs).toBe(250);
+    expect(cfg.importMarkdownMaxFiles).toBe(10);
+    expect(cfg.importMarkdownMaxChunks).toBe(20);
   });
 
   it("parses dual-write local priority", () => {

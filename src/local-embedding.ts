@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+
+import { getEnvApiKey } from "@mariozechner/pi-ai";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/memory-core";
 
 import type { PowerMemConfig } from "./config.js";
@@ -29,11 +32,14 @@ export type LocalEmbeddingFactory = {
 
 const DEFAULT_OPENAI_MODEL = "text-embedding-3-small";
 const DEFAULT_OLLAMA_MODEL = "nomic-embed-text";
+/** Default embedding model id for `model_gateway` when none is configured. */
+const DEFAULT_MODEL_GATEWAY_MODEL = "qwen3-embedding-8b";
 
 const PROVIDER_ALIASES: Record<string, { provider: string; providerKey?: string }> = {
   bailian: { provider: "openai", providerKey: "bailian" },
   dashscope: { provider: "openai", providerKey: "dashscope" },
   qwen: { provider: "openai", providerKey: "qwen" },
+  chj_gateway: { provider: "model_gateway", providerKey: "model_gateway" },
 };
 
 function resolveProviderMapping(provider: string): { provider: string; providerKey: string } {
@@ -52,11 +58,22 @@ function resolveDefaultModel(provider: string): string {
   if (provider === "ollama") {
     return DEFAULT_OLLAMA_MODEL;
   }
+  if (provider === "model_gateway") {
+    return DEFAULT_MODEL_GATEWAY_MODEL;
+  }
   return DEFAULT_OPENAI_MODEL;
 }
 
 function normalizeBaseUrl(provider: string, baseUrl?: string): string | undefined {
   const trimmed = baseUrl?.trim();
+  if (provider === "model_gateway") {
+    const cleaned = trimmed?.replace(/\/+$/, "");
+    if (cleaned) {
+      return cleaned;
+    }
+    const fromEnv = process.env.MODEL_GATEWAY_BASE_URL?.trim().replace(/\/+$/, "");
+    return fromEnv || undefined;
+  }
   if (!trimmed) {
     if (provider === "ollama") {
       return "http://localhost:11434/v1";
@@ -72,6 +89,11 @@ function normalizeBaseUrl(provider: string, baseUrl?: string): string | undefine
 
 function buildEmbeddingsUrl(baseUrl: string): string {
   return baseUrl.endsWith("/v1") ? `${baseUrl}/embeddings` : `${baseUrl}/v1/embeddings`;
+}
+
+/** Path-style embeddings route used by the internal CHJ model gateway (PowerMem `ModelGatewayEmbedding`). */
+function buildModelGatewayEmbeddingsUrl(baseUrl: string, model: string): string {
+  return `${baseUrl.replace(/\/+$/, "")}/embeddings/${encodeURIComponent(model)}`;
 }
 
 /** Avoid `res.json()` on empty/truncated bodies (throws Unexpected end of JSON input). */
@@ -163,9 +185,9 @@ function resolveLocalEmbeddingConfig(params: {
   );
   const provider = resolvedProvider.provider;
   const providerKey = resolvedProvider.providerKey;
-  if (provider !== "openai" && provider !== "ollama") {
+  if (provider !== "openai" && provider !== "ollama" && provider !== "model_gateway") {
     params.logger.warn?.(
-      `dual-write: local vector search supports openai/ollama providers only, got "${provider}"`,
+      `dual-write: local vector search supports openai, ollama, and model_gateway providers, got "${provider}"`,
     );
     return null;
   }
@@ -240,7 +262,95 @@ async function resolveApiKey(
     // ignore
   }
 
+  try {
+    for (const candidate of candidates) {
+      const envKey = getEnvApiKey(candidate);
+      if (envKey) {
+        return envKey;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   return fallback;
+}
+
+async function createModelGatewayEmbeddingProvider(params: {
+  api: OpenClawPluginApi;
+  cfg: LocalEmbeddingConfig;
+  logger: Logger;
+}): Promise<LocalEmbeddingProvider | null> {
+  const providerKey = params.cfg.providerKey ?? params.cfg.provider;
+  const gwToken =
+    (await resolveApiKey(
+      params.api,
+      providerKey,
+      params.cfg.provider,
+      params.cfg.apiKey,
+    )) ??
+    params.cfg.apiKey?.trim() ??
+    process.env.MODEL_GATEWAY_GW_TOKEN?.trim() ??
+    "";
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(params.cfg.headers ?? {}),
+  };
+  if (!headers["X-CHJ-GWToken"] && gwToken) {
+    headers["X-CHJ-GWToken"] = gwToken;
+  }
+  if (!headers["X-CHJ-GWToken"]) {
+    params.logger.warn?.(
+      "dual-write: model_gateway requires X-CHJ-GWToken (localVector.apiKey, MODEL_GATEWAY_GW_TOKEN, or headers)",
+    );
+    return null;
+  }
+
+  const baseUrl = params.cfg.baseUrl ?? normalizeBaseUrl("model_gateway");
+  if (!baseUrl) {
+    params.logger.warn?.(
+      "dual-write: model_gateway requires baseUrl (localVector.baseUrl or MODEL_GATEWAY_BASE_URL)",
+    );
+    return null;
+  }
+
+  const url = buildModelGatewayEmbeddingsUrl(baseUrl, params.cfg.model);
+
+  const embedBatch = async (texts: string[]): Promise<number[][]> => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "BCS-APIHub-RequestId": randomUUID(),
+      },
+      body: JSON.stringify({ input: texts }),
+    });
+    const payload = (await parseEmbeddingsResponseBody(res)) as {
+      data?: Array<{ embedding?: number[] }>;
+      error?: { message?: string };
+    };
+    if (!res.ok) {
+      const message =
+        payload?.error?.message ??
+        (typeof payload === "string" ? payload : `Embeddings failed: ${res.status}`);
+      throw new Error(message);
+    }
+    const rows = payload?.data ?? [];
+    return rows.map((row) => normalizeEmbedding(row.embedding ?? []));
+  };
+
+  return {
+    id: params.cfg.provider,
+    model: params.cfg.model,
+    embed: async (text) => {
+      const single = text.replace(/\n/g, " ");
+      const [vec] = await embedBatch([single]);
+      return vec ?? [];
+    },
+    embedBatch: async (texts) =>
+      embedBatch(texts.map((t) => t.replace(/\n/g, " "))),
+  };
 }
 
 async function createEmbeddingProvider(params: {
@@ -248,6 +358,10 @@ async function createEmbeddingProvider(params: {
   cfg: LocalEmbeddingConfig;
   logger: Logger;
 }): Promise<LocalEmbeddingProvider | null> {
+  if (params.cfg.provider === "model_gateway") {
+    return createModelGatewayEmbeddingProvider(params);
+  }
+
   const providerKey = params.cfg.providerKey ?? params.cfg.provider;
   const apiKey = await resolveApiKey(
     params.api,

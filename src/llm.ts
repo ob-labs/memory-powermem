@@ -3,9 +3,10 @@ import {
   getEnvApiKey,
   getModel,
   type Api,
+  type Message,
   type Model,
 } from "@mariozechner/pi-ai";
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/memory-core";
 
 const API_REMAP: Record<string, string> = {
   ollama: "openai-completions",
@@ -20,14 +21,24 @@ function resolveCompatBaseUrl(originalApi: string, baseUrl: string | undefined):
 }
 
 type Logger = OpenClawPluginApi["logger"];
+type GatewayConfig = {
+  models?: {
+    providers?: Record<string, unknown>;
+  };
+  agents?: {
+    defaults?: {
+      model?: unknown;
+    };
+  };
+};
 
 function buildModelFromConfig(
   provider: string,
   modelId: string,
-  cfg: OpenClawPluginApi["config"],
+  cfg: unknown,
   logger: Logger,
 ): Model<Api> | null {
-  const providers = cfg?.models?.providers ?? {};
+  const providers = (cfg as GatewayConfig | undefined)?.models?.providers ?? {};
   const providerCfg =
     (providers as Record<string, unknown>)[provider] ??
     Object.entries(providers).find(([k]) => k.toLowerCase() === provider.toLowerCase())?.[1];
@@ -71,10 +82,10 @@ function buildModelFromConfig(
 function resolveModel(
   provider: string,
   modelId: string,
-  cfg: OpenClawPluginApi["config"],
+  cfg: unknown,
   logger: Logger,
 ): Model<Api> | null {
-  const builtIn = getModel(provider, modelId) as Model<Api> | null | undefined;
+  const builtIn = getModel(provider as any, modelId as any) as Model<Api> | null | undefined;
   if (builtIn) {
     logger.info?.(`powermem/llm: resolved model from built-in catalog — ${provider}/${modelId}`);
     return builtIn;
@@ -109,7 +120,7 @@ async function resolveApiKey(api: OpenClawPluginApi, provider: string): Promise<
     // ignore
   }
 
-  const providers = (cfg?.models?.providers ?? {}) as Record<string, Record<string, unknown>>;
+  const providers = ((cfg as GatewayConfig | undefined)?.models?.providers ?? {}) as Record<string, Record<string, unknown>>;
   const providerCfg =
     providers[provider] ??
     Object.values(providers).find(
@@ -134,7 +145,7 @@ export async function callLlm(
   },
 ): Promise<string | null> {
   const cfg = api.config;
-  const defaultModel = cfg?.agents?.defaults?.model;
+  const defaultModel = (cfg as GatewayConfig | undefined)?.agents?.defaults?.model;
   const primary =
     typeof defaultModel === "string"
       ? defaultModel
@@ -175,14 +186,7 @@ export async function callLlm(
     return null;
   }
 
-  const messages: Array<{ role: string; content: string; timestamp: number }> = [];
-  if (opts?.systemPrompt) {
-    messages.push({
-      role: "system",
-      content: opts.systemPrompt,
-      timestamp: Date.now(),
-    });
-  }
+  const messages: Message[] = [];
   messages.push({ role: "user", content: prompt, timestamp: Date.now() });
 
   const maxTokens = opts?.maxTokens ?? 512;
@@ -191,7 +195,7 @@ export async function callLlm(
   try {
     const result = await completeSimple(
       model,
-      { messages },
+      { systemPrompt: opts?.systemPrompt, messages },
       { apiKey, maxTokens, temperature },
     );
     const text = (result.content as Array<{ type: string; text?: string }>)
