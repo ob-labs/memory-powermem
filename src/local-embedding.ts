@@ -1,4 +1,3 @@
-import { getEnvApiKey } from "@mariozechner/pi-ai";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/memory-core";
 
 import type { PowerMemConfig } from "./config.js";
@@ -235,17 +234,6 @@ async function resolveApiKey(
         if (auth?.apiKey) {
           return auth.apiKey;
         }
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  try {
-    for (const candidate of candidates) {
-      const envKey = getEnvApiKey(candidate);
-      if (envKey) {
-        return envKey;
       }
     }
   } catch {

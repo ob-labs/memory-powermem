@@ -213,12 +213,18 @@ check_openclaw() {
 
 deploy_from_repo() {
   info "Deploying plugin from current directory..."
+  rm -rf "${PLUGIN_DEST}"
   mkdir -p "${PLUGIN_DEST}"
-  for f in index.ts config.ts client.ts client-cli.ts resolve-powermem-cli.ts openclaw-powermem-env.ts openclaw.plugin.json package.json tsconfig.json .gitignore; do
+  for f in openclaw.plugin.json package.json tsconfig.json .gitignore; do
     if [[ -f "$f" ]]; then
       cp "$f" "${PLUGIN_DEST}/"
     fi
   done
+  cp -R src "${PLUGIN_DEST}/src"
+  if [[ -d "scripts" ]]; then
+    mkdir -p "${PLUGIN_DEST}/scripts"
+    cp scripts/*.mjs "${PLUGIN_DEST}/scripts/" 2>/dev/null || true
+  fi
   if [[ -f "README.md" ]]; then
     cp README.md "${PLUGIN_DEST}/" || true
   fi
@@ -235,21 +241,32 @@ deploy_from_github() {
   [[ -n "$REPO" ]] || REPO="ob-labs/memory-powermem"
   local gh_raw="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
   local files=(
-    "index.ts"
-    "config.ts"
-    "client.ts"
-    "client-cli.ts"
-    "resolve-powermem-cli.ts"
-    "openclaw-powermem-env.ts"
+    "src/index.ts"
+    "src/config.ts"
+    "src/client.ts"
+    "src/client-v2.ts"
+    "src/client-cli.ts"
+    "src/dual-write-client.ts"
+    "src/http.ts"
+    "src/llm.ts"
+    "src/local-embedding.ts"
+    "src/local-sqlite.ts"
+    "src/resolve-powermem-cli.ts"
+    "src/openclaw-powermem-env.ts"
+    "src/wal.ts"
+    "src/openclaw-plugin-sdk.d.ts"
+    "scripts/ensure-native-deps.mjs"
     "openclaw.plugin.json"
     "package.json"
     "tsconfig.json"
     ".gitignore"
   )
+  rm -rf "${PLUGIN_DEST}"
   mkdir -p "${PLUGIN_DEST}"
   info "Downloading plugin from ${REPO}@${BRANCH}..."
   for f in "${files[@]}"; do
     local url="${gh_raw}/${f}"
+    mkdir -p "${PLUGIN_DEST}/$(dirname "$f")"
     if curl -fsSL --connect-timeout 15 --max-time 60 -o "${PLUGIN_DEST}/${f}" "${url}" 2>/dev/null; then
       echo "  ${f} ✓"
     else
