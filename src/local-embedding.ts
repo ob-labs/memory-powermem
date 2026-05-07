@@ -313,12 +313,13 @@ async function createModelGatewayEmbeddingProvider(params: {
   const url = buildModelGatewayEmbeddingsUrl(baseUrl, params.cfg.model);
 
   const embedBatch = async (texts: string[]): Promise<number[][]> => {
+    const requestHeaders: Record<string, string> = { ...headers };
+    if (!requestHeaders["BCS-APIHub-RequestId"]?.trim()) {
+      requestHeaders["BCS-APIHub-RequestId"] = randomUUID();
+    }
     const res = await fetch(url, {
       method: "POST",
-      headers: {
-        ...headers,
-        "BCS-APIHub-RequestId": randomUUID(),
-      },
+      headers: requestHeaders,
       body: JSON.stringify({ input: texts }),
     });
     const payload = (await parseEmbeddingsResponseBody(res)) as {
