@@ -164,6 +164,41 @@ function saveAgentIdentityMap(
   }
 }
 
+type StoredIdentityFile = { userId?: string; agentId?: string };
+
+function readStoredIdentityFile(identityPath: string): StoredIdentityFile {
+  try {
+    const raw = readFileSync(identityPath, "utf-8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const o = parsed as Record<string, unknown>;
+      return {
+        userId: typeof o.userId === "string" ? o.userId : undefined,
+        agentId: typeof o.agentId === "string" ? o.agentId : undefined,
+      };
+    }
+  } catch {
+    /* missing or invalid */
+  }
+  return {};
+}
+
+function writeStoredIdentityFile(
+  powermemDir: string,
+  identityPath: string,
+  data: { userId: string; agentId: string },
+  logger: Logger,
+): boolean {
+  try {
+    mkdirSync(powermemDir, { recursive: true });
+    writeFileSync(identityPath, JSON.stringify(data, null, 2), "utf-8");
+    return true;
+  } catch (err) {
+    logger.warn?.(`memory-powermem: failed to write identity.json: ${String(err)}`);
+    return false;
+  }
+}
+
 type MemoryClient = {
   health: () => Promise<{ status: string; error?: string }>;
   add: (
@@ -266,7 +301,9 @@ const memoryPlugin = {
         : undefined;
 
     const defaultIdentity: AgentIdentity = { userId, agentId };
-    const agentIdentityPath = join(stateDir, "powermem", "agent-identities.json");
+    const powermemDir = join(stateDir, "powermem");
+    const identityPath = join(powermemDir, "identity.json");
+    const agentIdentityPath = join(powermemDir, "agent-identities.json");
     const agentIdentityMap = loadAgentIdentityMap(agentIdentityPath, api.logger);
     let defaultIdentityBound = agentIdentityMap.size > 0;
 
@@ -1390,6 +1427,218 @@ const memoryPlugin = {
         const ltm = program
           .command("ltm")
           .description("PowerMem long-term memory plugin commands");
+
+        const identityCmd = ltm
+          .command("identity")
+          .description(
+            "Read or edit <stateDir>/powermem/identity.json (default user/agent ids when config uses auto)",
+          );
+
+        identityCmd
+          .command("show")
+          .description("Print identity.json path and stored userId / agentId")
+          .option("--json", "Machine-readable JSON only")
+          .action((...args: unknown[]) => {
+            const opts = (args[0] ?? {}) as { json?: boolean };
+            const stored = readStoredIdentityFile(identityPath);
+            if (opts.json === true) {
+              console.log(JSON.stringify({ path: identityPath, ...stored }, null, 2));
+              return;
+            }
+            console.log(`path: ${identityPath}`);
+            console.log(`userId: ${stored.userId ?? "(unset)"}`);
+            console.log(`agentId: ${stored.agentId ?? "(unset)"}`);
+          });
+
+        identityCmd
+          .command("set")
+          .description("Set userId and/or agentId in identity.json (omitted fields keep existing or auto-generate)")
+          .option("--user-id <id>", "PowerMem user id")
+          .option("--agent-id <id>", "PowerMem agent id")
+          .action(async (...args: unknown[]) => {
+            const opts = (args[0] ?? {}) as { userId?: string; agentId?: string };
+            const rawUser = opts.userId?.trim();
+            const rawAgent = opts.agentId?.trim();
+            if (!rawUser && !rawAgent) {
+              console.error("Provide at least one of --user-id or --agent-id.");
+              process.exitCode = 1;
+              return;
+            }
+            const stored = readStoredIdentityFile(identityPath);
+            const nextUserId =
+              rawUser ?? stored.userId?.trim() ?? `user-${randomUUID()}`;
+            const nextAgentId =
+              rawAgent ?? stored.agentId?.trim() ?? `agent-${randomUUID()}`;
+            if (
+              !writeStoredIdentityFile(powermemDir, identityPath, { userId: nextUserId, agentId: nextAgentId }, api.logger)
+            ) {
+              process.exitCode = 1;
+              return;
+            }
+            console.log(`Updated ${identityPath}`);
+            console.log(JSON.stringify({ userId: nextUserId, agentId: nextAgentId }, null, 2));
+          });
+
+        const agentIdentitiesCmd = ltm
+          .command("agent-identities")
+          .description(
+            "Read or edit <stateDir>/powermem/agent-identities.json (per OpenClaw agent → PowerMem ids)",
+          );
+
+        agentIdentitiesCmd
+          .command("show")
+          .description("List OpenClaw agent keys and their PowerMem userId / agentId")
+          .option("--json", "Machine-readable JSON only")
+          .action((...args: unknown[]) => {
+            const opts = (args[0] ?? {}) as { json?: boolean };
+            const map = loadAgentIdentityMap(agentIdentityPath, api.logger);
+            const agents: Record<string, AgentIdentity> = {};
+            for (const [k, v] of map.entries()) {
+              agents[k] = v;
+            }
+            if (opts.json === true) {
+              console.log(JSON.stringify({ path: agentIdentityPath, agents }, null, 2));
+              return;
+            }
+            console.log(`path: ${agentIdentityPath}`);
+            const keys = Object.keys(agents);
+            if (keys.length === 0) {
+              console.log("(no entries)");
+              return;
+            }
+            for (const key of keys) {
+              const v = agents[key];
+              console.log(`${key}\tuserId=${v.userId}\tagentId=${v.agentId}`);
+            }
+          });
+
+        agentIdentitiesCmd
+          .command("set")
+          .description(
+            "Set PowerMem userId and/or agentId for one OpenClaw agent key (creates entry only if both ids are provided when missing)",
+          )
+          .option("--agent <key>", "OpenClaw agent id (JSON object key)", "")
+          .option("--user-id <id>", "PowerMem user id")
+          .option("--agent-id <id>", "PowerMem agent id")
+          .action(async (...args: unknown[]) => {
+            const opts = (args[0] ?? {}) as {
+              agent?: string;
+              userId?: string;
+              agentId?: string;
+            };
+            const key = opts.agent?.trim();
+            const rawUser = opts.userId?.trim();
+            const rawAgent = opts.agentId?.trim();
+            if (!key) {
+              console.error("Missing --agent.");
+              process.exitCode = 1;
+              return;
+            }
+            if (!rawUser && !rawAgent) {
+              console.error("Provide at least one of --user-id or --agent-id.");
+              process.exitCode = 1;
+              return;
+            }
+            const map = loadAgentIdentityMap(agentIdentityPath, api.logger);
+            const existing = map.get(key);
+            if (!existing) {
+              if (!rawUser || !rawAgent) {
+                console.error(
+                  "No existing entry for this --agent; provide both --user-id and --agent-id to create one.",
+                );
+                process.exitCode = 1;
+                return;
+              }
+              map.set(key, { userId: rawUser, agentId: rawAgent });
+            } else {
+              map.set(key, {
+                userId: rawUser ?? existing.userId,
+                agentId: rawAgent ?? existing.agentId,
+              });
+            }
+            saveAgentIdentityMap(agentIdentityPath, map, api.logger);
+            const updated = map.get(key)!;
+            console.log(`Updated ${agentIdentityPath} entry "${key}"`);
+            console.log(JSON.stringify(updated, null, 2));
+          });
+
+        ltm
+          .command("sync-user-id")
+          .description(
+            "Use one userId in identity.json and in every agent-identities.json entry (PowerMem agent ids unchanged)",
+          )
+          .option("--user-id <id>", "Use this user id everywhere")
+          .option(
+            "--from <mode>",
+            "Where to read the canonical user id when --user-id is omitted: identity | agent",
+            "identity",
+          )
+          .option("--agent <key>", "OpenClaw agent key when --from agent")
+          .action(async (...args: unknown[]) => {
+            const opts = (args[0] ?? {}) as {
+              userId?: string;
+              from?: string;
+              agent?: string;
+            };
+            const explicit = opts.userId?.trim();
+            const from = (opts.from ?? "identity").trim().toLowerCase();
+            let canonical = explicit;
+            if (!canonical) {
+              if (from === "identity") {
+                canonical = readStoredIdentityFile(identityPath).userId?.trim();
+              } else if (from === "agent") {
+                const agentKey = opts.agent?.trim();
+                if (!agentKey) {
+                  console.error("With --from agent, pass --agent <OpenClaw agent key>.");
+                  process.exitCode = 1;
+                  return;
+                }
+                const map = loadAgentIdentityMap(agentIdentityPath, api.logger);
+                canonical = map.get(agentKey)?.userId?.trim();
+              } else {
+                console.error('--from must be "identity" or "agent".');
+                process.exitCode = 1;
+                return;
+              }
+            }
+            if (!canonical) {
+              console.error(
+                "Could not resolve user id: use --user-id, or ensure identity.json / the chosen agent entry has userId.",
+              );
+              process.exitCode = 1;
+              return;
+            }
+
+            const storedId = readStoredIdentityFile(identityPath);
+            const nextAgentIdForFile =
+              storedId.agentId?.trim() ?? `agent-${randomUUID()}`;
+            if (
+              !writeStoredIdentityFile(
+                powermemDir,
+                identityPath,
+                { userId: canonical, agentId: nextAgentIdForFile },
+                api.logger,
+              )
+            ) {
+              process.exitCode = 1;
+              return;
+            }
+
+            const map = loadAgentIdentityMap(agentIdentityPath, api.logger);
+            if (map.size === 0) {
+              console.log(
+                `Set identity.json userId to ${canonical} (${agentIdentityPath} has no entries to update).`,
+              );
+              return;
+            }
+            for (const [k, v] of map.entries()) {
+              map.set(k, { userId: canonical, agentId: v.agentId });
+            }
+            saveAgentIdentityMap(agentIdentityPath, map, api.logger);
+            console.log(
+              `Synced userId "${canonical}" to identity.json and ${map.size} agent-identities entr${map.size === 1 ? "y" : "ies"}.`,
+            );
+          });
 
         ltm
           .command("search")

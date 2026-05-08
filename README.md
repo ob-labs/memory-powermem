@@ -350,6 +350,14 @@ Exposed to OpenClaw agents:
 - `openclaw ltm import-md [paths...] [--force] [--dry-run] [--delay-ms n] [--max-file-bytes n] [--max-files n] [--max-chunks n]` — Import existing markdown memories. With no paths, scans `memory/`, `MEMORY.md`, and `USER.md`.
 - `openclaw ltm import-md-status [paths...] [--json]` — Show per-file markdown import status: imported, changed, skipped, failed, or not imported.
 
+**Identity files (optional):** When plugin config leaves `userId` / `agentId` as `auto` (or omits them), stable IDs are stored under `<stateDir>/powermem/identity.json` (defaults) and `<stateDir>/powermem/agent-identities.json` (per OpenClaw agent key). If you set `userId` or `agentId` explicitly in `openclaw.json`, those values override the files at runtime.
+
+- `openclaw ltm identity show [--json]` — Print path and stored `userId` / `agentId` in `identity.json`.
+- `openclaw ltm identity set --user-id <id>` / `--agent-id <id>` — Set one or both (missing fields keep existing values or are auto-generated).
+- `openclaw ltm agent-identities show [--json]` — List each OpenClaw agent key and its PowerMem `userId` / `agentId`.
+- `openclaw ltm agent-identities set --agent <openclawAgentKey> --user-id <id>` / `--agent-id <id>` — Update one entry; creating a new key requires both `--user-id` and `--agent-id`.
+- `openclaw ltm sync-user-id [--user-id <id>] [--from identity|agent] [--agent <key>]` — Use a single `userId` in `identity.json` and in every `agent-identities.json` entry (each entry’s PowerMem `agentId` is unchanged). With no `--user-id`, reads the canonical id from `identity.json` (`--from identity`, default) or from one map entry (`--from agent --agent <key>`).
+
 ---
 
 ## Troubleshooting

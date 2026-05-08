@@ -351,6 +351,14 @@ openclaw ltm search "咖啡"
 - `openclaw ltm import-md [paths...] [--force] [--dry-run] [--delay-ms n] [--max-file-bytes n] [--max-files n] [--max-chunks n]` — 导入已有 markdown 记忆；不传路径时扫描 `memory/`、`MEMORY.md`、`USER.md`
 - `openclaw ltm import-md-status [paths...] [--json]` — 查看每个 markdown 文件的导入状态：已导入、已变更、跳过、失败或未导入
 
+**身份文件（可选）：** 若插件配置将 `userId` / `agentId` 设为 `auto`（或未填写），稳定 ID 会保存在 `<stateDir>/powermem/identity.json`（默认值）与 `<stateDir>/powermem/agent-identities.json`（按 OpenClaw agent key）。若在 `openclaw.json` 中显式设置了 `userId` 或 `agentId`，运行时将优先使用该配置，覆盖文件中的值。
+
+- `openclaw ltm identity show [--json]` — 打印路径及 `identity.json` 中存储的 `userId` / `agentId`。
+- `openclaw ltm identity set --user-id <id>` / `--agent-id <id>` — 设置其一或两者（未指定的字段保留已有值或自动生成）。
+- `openclaw ltm agent-identities show [--json]` — 列出每个 OpenClaw agent key 及其对应的 PowerMem `userId` / `agentId`。
+- `openclaw ltm agent-identities set --agent <openclawAgentKey> --user-id <id>` / `--agent-id <id>` — 更新一条映射；新建 key 时需同时提供 `--user-id` 与 `--agent-id`。
+- `openclaw ltm sync-user-id [--user-id <id>] [--from identity|agent] [--agent <key>]` — 在 `identity.json` 与 `agent-identities.json` 的每条记录中使用同一个 `userId`（各条目的 PowerMem `agentId` 不变）。省略 `--user-id` 时，从 `identity.json` 读取规范 id（`--from identity`，默认）或从某条映射读取（`--from agent --agent <key>`）。
+
 ---
 
 ## 常见问题
