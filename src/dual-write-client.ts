@@ -371,12 +371,18 @@ export class DualWriteClient {
             this.syncMaxDelayMs,
             this.syncBaseDelayMs * Math.pow(2, row.retries),
           );
-          const nextRetryAt = new Date(Date.now() + delay).toISOString();
+          const nextRetry = new Date(Date.now() + delay);
+          const nextRetryAt = nextRetry.toISOString();
+          const nextRetryAtLog = nextRetry.toLocaleString(undefined, {
+            dateStyle: "medium",
+            timeStyle: "medium",
+            timeZoneName: "short",
+          });
           const reasonRaw = err instanceof Error ? err.message : String(err);
           const reason = reasonRaw.slice(0, 500);
           this.local.scheduleRetries([row.id], nextRetryAt, reason);
           this.logger?.warn?.(
-            `dual-write: pending id=${row.id} retry scheduled at ${nextRetryAt}, reason=${reason}`,
+            `dual-write: pending id=${row.id} retry scheduled at ${nextRetryAtLog}, reason=${reason}`,
           );
           break;
         }
