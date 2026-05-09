@@ -302,6 +302,7 @@ openclaw ltm search "咖啡"
 | `autoExperience` | 否 | LLM 自动提炼经验，默认 `true`。 |
 | `experienceRecall` | 否 | 召回结果是否包含经验，默认 `true`。 |
 | `inferOnAdd` | 否 | 写入时是否用 PowerMem 智能抽取，默认 `true`。 |
+| `pluginLlmModel` | 否 | 可选，仅用于插件内 LLM（WAL、自动经验）。当 `agents.defaults.model` 为路由占位（如 `auto-router/auto`）时填写 `provider/model`，且须与 `models.providers` 一致。也可设环境变量 `MEMORY_POWERMEM_PLUGIN_LLM_MODEL`；未配置时依次尝试：**env** → **`agents.defaults.models` 里第一个非 `auto-router` 的键** → **`models.providers` 中第一个模型**。 |
 | `importMarkdownOnStart` | 否 | 启动时一次性导入已有 OpenClaw markdown 记忆，默认 `false`。 |
 | `importMarkdownPaths` | 否 | 要导入的 markdown 文件或目录。默认扫描 `memory/`、`MEMORY.md`、`USER.md`；相对路径基于 OpenClaw workspace。 |
 | `importMarkdownMaxFileBytes` | 否 | 单个 markdown 文件最大大小，默认 `10485760`（10 MiB）；超出的文件标记为 `skipped_too_large`。 |

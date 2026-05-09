@@ -51,6 +51,11 @@ export type PowerMemConfig = {
    * (overrides the same keys from an optional .env file). SQLite defaults live under the OpenClaw state dir.
    */
   useOpenClawModel?: boolean;
+  /**
+   * Optional `provider/model` for plugin-only LLM calls (WAL capture, auto-experience).
+   * Use when `agents.defaults.model.primary` is a router placeholder (e.g. `auto-router/auto`) that OpenClaw resolves internally but this plugin cannot load via `models.providers`.
+   */
+  pluginLlmModel?: string;
   userId?: string;
   agentId?: string;
   /** Max memories to return in recall / inject in auto-recall. Default 5. */
@@ -114,6 +119,7 @@ const ALLOWED_KEYS = [
   "envFile",
   "pmemPath",
   "useOpenClawModel",
+  "pluginLlmModel",
   "userId",
   "agentId",
   "recallLimit",
@@ -272,6 +278,10 @@ export const powerMemConfigSchema = {
       envFile,
       pmemPath,
       useOpenClawModel: cfg.useOpenClawModel !== false,
+      pluginLlmModel:
+        typeof cfg.pluginLlmModel === "string" && cfg.pluginLlmModel.trim()
+          ? cfg.pluginLlmModel.trim()
+          : undefined,
       userId:
         typeof cfg.userId === "string" && cfg.userId.trim()
           ? cfg.userId.trim()

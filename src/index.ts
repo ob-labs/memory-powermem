@@ -1959,7 +1959,7 @@ const memoryPlugin = {
     async function extractExperiencesWithLlm(messages: unknown[]): Promise<string[]> {
       const prompt = buildExperiencePrompt(messages);
       if (!prompt.trim()) return [];
-      const reply = await callLlm(api, prompt, {
+      const reply = await callLlm(api, cfg, prompt, {
         systemPrompt: EXPERIENCE_SYSTEM_PROMPT,
         maxTokens: 512,
         temperature: 0.2,
@@ -1986,7 +1986,7 @@ const memoryPlugin = {
     async function walCapture(prompt: string, sessionKey: string, ctxAgentId?: string): Promise<void> {
       const agentClient = getClientForAgent(ctxAgentId);
       await walCaptureCore(prompt, sessionKey, walSession, {
-        callLlm: (p, opts) => callLlm(api, p, opts),
+        callLlm: (p, opts) => callLlm(api, cfg, p, opts),
         store: async (content, metadata) => {
           const created = await agentClient.add(content, { infer: false, metadata });
           const id = created[0]?.memory_id;
