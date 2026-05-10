@@ -6,6 +6,7 @@ import {
   powerMemConfigSchema,
   resolveUserId,
   resolveAgentId,
+  expandOptionalEnvPlaceholders,
   DEFAULT_USER_ID,
   DEFAULT_AGENT_ID,
   DEFAULT_PLUGIN_CONFIG,
@@ -137,5 +138,38 @@ describe("resolveUserId / resolveAgentId", () => {
     } as PowerMemConfig;
     expect(resolveUserId(cfg)).toBe("user-1");
     expect(resolveAgentId(cfg)).toBe("agent-1");
+  });
+});
+
+describe("expandOptionalEnvPlaceholders", () => {
+  it("returns literal when no placeholders", () => {
+    expect(expandOptionalEnvPlaceholders("alice")).toBe("alice");
+  });
+
+  it("substitutes env when set", () => {
+    process.env.PM_TEST_EXPAND_X = "bob";
+    expect(expandOptionalEnvPlaceholders("${PM_TEST_EXPAND_X}")).toBe("bob");
+    expect(expandOptionalEnvPlaceholders("pre-${PM_TEST_EXPAND_X}-suf")).toBe("pre-bob-suf");
+    delete process.env.PM_TEST_EXPAND_X;
+  });
+
+  it("returns undefined when referenced env is missing", () => {
+    delete process.env.PM_TEST_EXPAND_MISSING;
+    expect(expandOptionalEnvPlaceholders("${PM_TEST_EXPAND_MISSING}")).toBeUndefined();
+  });
+});
+
+describe("agent list sync config", () => {
+  it("parses optional agentListSyncIntervalMs and openclawConfigPath", () => {
+    const cfg = powerMemConfigSchema.parse({
+      mode: "cli",
+      agentListSyncIntervalMs: 0,
+      openclawConfigPath: "/tmp/oc.json",
+      autoCapture: true,
+      autoRecall: true,
+      inferOnAdd: true,
+    }) as PowerMemConfig;
+    expect(cfg.agentListSyncIntervalMs).toBe(0);
+    expect(cfg.openclawConfigPath).toBe("/tmp/oc.json");
   });
 });

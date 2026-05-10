@@ -301,6 +301,7 @@ After installing, uninstalling, or changing config, restart the OpenClaw gateway
 | `autoExperience` | No | Auto-extract procedural experiences via LLM; default `true`. |
 | `experienceRecall` | No | Include experiences in recall results; default `true`. |
 | `inferOnAdd` | No | Use PowerMem intelligent extraction when adding; default `true`. |
+| `pluginLlmModel` | No | Optional `provider/model` for plugin-side LLM only (WAL capture, auto-experience). Use when `agents.defaults.model` is a router (e.g. `auto-router/auto`). Must match `models.providers`. Env: `MEMORY_POWERMEM_PLUGIN_LLM_MODEL`. If unset with a router primary: env → **first non-router key in `agents.defaults.models`** → first model under `models.providers`. |
 | `importMarkdownOnStart` | No | One-time import of existing OpenClaw markdown memories on startup; default `false`. |
 | `importMarkdownPaths` | No | Markdown files/directories to import. Defaults to `memory/`, `MEMORY.md`, and `USER.md`; relative paths resolve from the OpenClaw workspace. |
 | `importMarkdownMaxFileBytes` | No | Max size for a single markdown file; default `10485760` (10 MiB). Larger files are marked `skipped_too_large`. |

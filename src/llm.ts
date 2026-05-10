@@ -7,10 +7,14 @@ import {
   type Model,
 } from "@mariozechner/pi-ai";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/memory-core";
+import type { PowerMemConfig } from "./config.js";
 
 const API_REMAP: Record<string, string> = {
   ollama: "openai-completions",
 };
+
+/** OpenClaw router placeholders: chat resolves these internally; plugins need a concrete provider/model. */
+const ROUTER_PROVIDER_MARKERS = ["auto-router"];
 
 function resolveCompatBaseUrl(originalApi: string, baseUrl: string | undefined): string | undefined {
   if (originalApi === "ollama") {
@@ -28,9 +32,123 @@ type GatewayConfig = {
   agents?: {
     defaults?: {
       model?: unknown;
+      /** Catalog of `provider/model` keys → aliases (OpenClaw router); keys are concrete models except `auto-router/auto`. */
+      models?: Record<string, unknown>;
     };
   };
 };
+
+function extractPrimaryFromGateway(cfg: unknown): string | undefined {
+  const defaultModel = (cfg as GatewayConfig | undefined)?.agents?.defaults?.model;
+  if (typeof defaultModel === "string") return defaultModel.trim();
+  const primary = (defaultModel as Record<string, unknown> | undefined)?.primary;
+  return typeof primary === "string" ? primary.trim() : undefined;
+}
+
+/** First non-router `provider/model` key in `agents.defaults.models` (alias catalog). Pairs with `primary: auto-router/auto`. */
+function firstConcreteModelFromAgentsDefaultsCatalog(cfg: unknown, logger: Logger): string | null {
+  const raw = (cfg as GatewayConfig | undefined)?.agents?.defaults?.models;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const catalog = raw as Record<string, unknown>;
+  for (const key of Object.keys(catalog)) {
+    const trimmed = key.trim();
+    const parsed = parseProviderModel(trimmed);
+    if (!parsed) continue;
+    if (ROUTER_PROVIDER_MARKERS.includes(parsed.provider.toLowerCase())) continue;
+    logger.info?.(`powermem/llm: using agents.defaults.models catalog key — ${trimmed}`);
+    return trimmed;
+  }
+  return null;
+}
+
+/** First provider/model found under models.providers (skips router keys). Best-effort when primary is auto-router. */
+function firstConcreteModelFromProviders(cfg: unknown, logger: Logger): string | null {
+  const providers = (cfg as GatewayConfig | undefined)?.models?.providers;
+  if (!providers || typeof providers !== "object" || Array.isArray(providers)) {
+    return null;
+  }
+  const record = providers as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (ROUTER_PROVIDER_MARKERS.includes(key.toLowerCase())) continue;
+    const p = record[key];
+    if (!p || typeof p !== "object") continue;
+    const modelsList = (p as { models?: Array<{ id?: unknown }> }).models;
+    if (!Array.isArray(modelsList)) continue;
+    for (const m of modelsList) {
+      if (m && typeof m === "object" && typeof (m as { id?: unknown }).id === "string") {
+        const id = String((m as { id: string }).id).trim();
+        if (id) {
+          const spec = `${key}/${id}`;
+          logger.info?.(`powermem/llm: using first models.providers model as fallback — ${spec}`);
+          return spec;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function parseProviderModel(spec: string): { provider: string; modelId: string } | null {
+  const slashIdx = spec.indexOf("/");
+  if (slashIdx <= 0 || slashIdx >= spec.length - 1) return null;
+  const provider = spec.slice(0, slashIdx);
+  const modelId = spec.slice(slashIdx + 1);
+  if (!provider.trim() || !modelId.trim()) return null;
+  return { provider, modelId };
+}
+
+function pickProviderModelSpec(
+  api: OpenClawPluginApi,
+  gatewayCfg: unknown,
+  memoryCfg: PowerMemConfig | undefined,
+): string | null {
+  const override = memoryCfg?.pluginLlmModel?.trim();
+  if (override) {
+    if (!parseProviderModel(override)) {
+      api.logger.warn(`powermem/llm: pluginLlmModel must be "provider/model", got "${override}"`);
+      return null;
+    }
+    api.logger.info?.(`powermem/llm: using pluginLlmModel — ${override}`);
+    return override;
+  }
+
+  const primary = extractPrimaryFromGateway(gatewayCfg);
+  if (!primary?.trim()) {
+    api.logger.warn("powermem/llm: no default model configured, skipping");
+    return null;
+  }
+
+  const parsed = parseProviderModel(primary);
+  if (!parsed) {
+    api.logger.warn(`powermem/llm: invalid model format "${primary}", expected "provider/model"`);
+    return null;
+  }
+
+  const { provider } = parsed;
+  if (ROUTER_PROVIDER_MARKERS.includes(provider.toLowerCase())) {
+    const envSpec = process.env.MEMORY_POWERMEM_PLUGIN_LLM_MODEL?.trim();
+    if (envSpec && parseProviderModel(envSpec)) {
+      api.logger.info?.(
+        `powermem/llm: agents.defaults.model is router; using MEMORY_POWERMEM_PLUGIN_LLM_MODEL — ${envSpec}`,
+      );
+      return envSpec;
+    }
+    const catalogFallback = firstConcreteModelFromAgentsDefaultsCatalog(gatewayCfg, api.logger);
+    if (catalogFallback) return catalogFallback;
+
+    const fallback = firstConcreteModelFromProviders(gatewayCfg, api.logger);
+    if (fallback) return fallback;
+
+    api.logger.warn?.(
+      `powermem/llm: agents.defaults.model is "${primary}" (router). Set pluginLlmModel, env MEMORY_POWERMEM_PLUGIN_LLM_MODEL, add concrete keys under agents.defaults.models, or ensure models.providers lists models.`,
+    );
+    return null;
+  }
+
+  return primary;
+}
 
 function buildModelFromConfig(
   provider: string,
@@ -120,7 +238,10 @@ async function resolveApiKey(api: OpenClawPluginApi, provider: string): Promise<
     // ignore
   }
 
-  const providers = ((cfg as GatewayConfig | undefined)?.models?.providers ?? {}) as Record<string, Record<string, unknown>>;
+  const providers = ((cfg as GatewayConfig | undefined)?.models?.providers ?? {}) as Record<
+    string,
+    Record<string, unknown>
+  >;
   const providerCfg =
     providers[provider] ??
     Object.values(providers).find(
@@ -135,8 +256,23 @@ async function resolveApiKey(api: OpenClawPluginApi, provider: string): Promise<
   return undefined;
 }
 
+function resolveModelFromSpec(
+  spec: string,
+  gatewayCfg: unknown,
+  logger: Logger,
+): { model: Model<Api>; provider: string } | null {
+  const parsed = parseProviderModel(spec);
+  if (!parsed) return null;
+  const { provider, modelId } = parsed;
+  logger.info?.(`powermem/llm: resolving model ${provider}/${modelId}`);
+  const model = resolveModel(provider, modelId, gatewayCfg, logger);
+  if (!model) return null;
+  return { model, provider };
+}
+
 export async function callLlm(
   api: OpenClawPluginApi,
+  memoryCfg: PowerMemConfig | undefined,
   prompt: string,
   opts?: {
     maxTokens?: number;
@@ -144,44 +280,40 @@ export async function callLlm(
     systemPrompt?: string;
   },
 ): Promise<string | null> {
-  const cfg = api.config;
-  const defaultModel = (cfg as GatewayConfig | undefined)?.agents?.defaults?.model;
-  const primary =
-    typeof defaultModel === "string"
-      ? defaultModel
-      : ((defaultModel as Record<string, unknown> | undefined)?.primary as string | undefined);
+  const gatewayCfg = api.config;
 
-  if (!primary?.trim()) {
-    api.logger.warn("powermem/llm: no default model configured, skipping");
+  let spec = pickProviderModelSpec(api, gatewayCfg, memoryCfg);
+  let resolved = spec ? resolveModelFromSpec(spec, gatewayCfg, api.logger) : null;
+
+  if (!resolved) {
+    const envSpec = process.env.MEMORY_POWERMEM_PLUGIN_LLM_MODEL?.trim();
+    if (envSpec && envSpec !== spec && parseProviderModel(envSpec)) {
+      api.logger.info?.(`powermem/llm: retry with MEMORY_POWERMEM_PLUGIN_LLM_MODEL — ${envSpec}`);
+      resolved = resolveModelFromSpec(envSpec, gatewayCfg, api.logger);
+      if (resolved) spec = envSpec;
+    }
+  }
+
+  if (!resolved || !spec) {
+    if (spec) {
+      const parsed = parseProviderModel(spec);
+      if (parsed) {
+        api.logger.warn(
+          `powermem/llm: could not resolve model ${parsed.provider}/${parsed.modelId}, skipping LLM call`,
+        );
+      }
+    }
     return null;
   }
 
-  const slashIdx = primary.indexOf("/");
-  if (slashIdx < 0) {
-    api.logger.warn(
-      `powermem/llm: invalid model format "${primary}", expected "provider/model"`,
-    );
-    return null;
-  }
-
-  const provider = primary.slice(0, slashIdx);
-  const modelId = primary.slice(slashIdx + 1);
-
-  api.logger.info?.(`powermem/llm: resolving model ${provider}/${modelId}`);
-  const model = resolveModel(provider, modelId, cfg, api.logger);
-  if (!model) {
-    api.logger.warn(
-      `powermem/llm: could not resolve model ${provider}/${modelId}, skipping LLM call`,
-    );
-    return null;
-  }
+  const { model, provider } = resolved;
 
   api.logger.info?.(`powermem/llm: resolving auth for provider "${provider}"`);
   const apiKey = await resolveApiKey(api, provider);
   if (!apiKey) {
     api.logger.warn(
       `powermem/llm: no apiKey found for provider "${provider}". ` +
-      `Ensure openclaw auth, env var, or models.providers.${provider}.apiKey.`,
+        `Ensure openclaw auth, env var, or models.providers.${provider}.apiKey.`,
     );
     return null;
   }

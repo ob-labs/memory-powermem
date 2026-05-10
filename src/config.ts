@@ -26,6 +26,37 @@ function resolveEnvVars(value: string): string {
   });
 }
 
+/**
+ * Replace `${VAR}` with `process.env[VAR]`. If any referenced variable is
+ * missing or empty, returns `undefined` (caller should fall back to file / UUID).
+ * Strings without placeholders are returned trimmed as-is.
+ */
+export function expandOptionalEnvPlaceholders(input: string | undefined): string | undefined {
+  if (input === undefined) return undefined;
+  const trimmed = input.trim();
+  if (!trimmed) return undefined;
+  const re = /\$\{([^}]+)\}/g;
+  if (!re.test(trimmed)) {
+    return trimmed;
+  }
+  re.lastIndex = 0;
+  let out = "";
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(trimmed)) !== null) {
+    const name = m[1].trim();
+    const val = process.env[name];
+    if (val === undefined || val === "") {
+      return undefined;
+    }
+    out += trimmed.slice(lastIndex, m.index) + val;
+    lastIndex = m.index + m[0].length;
+  }
+  out += trimmed.slice(lastIndex);
+  const merged = out.trim();
+  return merged.length > 0 ? merged : undefined;
+}
+
 export type PowerMemMode = "http" | "cli";
 export type PowerMemHttpApiVersion = "v1" | "v2";
 export type DualWritePriority = "remote" | "local";
@@ -51,8 +82,23 @@ export type PowerMemConfig = {
    * (overrides the same keys from an optional .env file). SQLite defaults live under the OpenClaw state dir.
    */
   useOpenClawModel?: boolean;
+  /**
+   * Optional `provider/model` for plugin-only LLM calls (WAL capture, auto-experience).
+   * Use when `agents.defaults.model.primary` is a router placeholder (e.g. `auto-router/auto`) that OpenClaw resolves internally but this plugin cannot load via `models.providers`.
+   */
+  pluginLlmModel?: string;
   userId?: string;
   agentId?: string;
+  /**
+   * When `agentId` is `auto`, poll this path (JSON) for `agents.list` and merge
+   * into `agent-identities.json`. Default: `<stateDir>/openclaw.json`.
+   */
+  openclawConfigPath?: string;
+  /**
+   * Interval (ms) to re-read OpenClaw config for new agents when `agentId` is `auto`.
+   * `0` disables polling (sync once at startup). Default when omitted: `60000`.
+   */
+  agentListSyncIntervalMs?: number;
   /** Max memories to return in recall / inject in auto-recall. Default 5. */
   recallLimit?: number;
   /** Min score (0–1) for recall; memories below are filtered. Default 0. */
@@ -114,8 +160,11 @@ const ALLOWED_KEYS = [
   "envFile",
   "pmemPath",
   "useOpenClawModel",
+  "pluginLlmModel",
   "userId",
   "agentId",
+  "openclawConfigPath",
+  "agentListSyncIntervalMs",
   "recallLimit",
   "recallScoreThreshold",
   "walCapture",
@@ -272,6 +321,10 @@ export const powerMemConfigSchema = {
       envFile,
       pmemPath,
       useOpenClawModel: cfg.useOpenClawModel !== false,
+      pluginLlmModel:
+        typeof cfg.pluginLlmModel === "string" && cfg.pluginLlmModel.trim()
+          ? cfg.pluginLlmModel.trim()
+          : undefined,
       userId:
         typeof cfg.userId === "string" && cfg.userId.trim()
           ? cfg.userId.trim()
@@ -307,6 +360,14 @@ export const powerMemConfigSchema = {
         typeof cfg.localAgentId === "string" && cfg.localAgentId.trim()
           ? cfg.localAgentId.trim()
           : undefined,
+      openclawConfigPath:
+        typeof cfg.openclawConfigPath === "string" && cfg.openclawConfigPath.trim()
+          ? cfg.openclawConfigPath.trim()
+          : undefined,
+      agentListSyncIntervalMs: toOptionalNonNegativeInt(
+        cfg.agentListSyncIntervalMs,
+        86400000,
+      ),
       syncOnResume: cfg.syncOnResume !== false,
       syncBatchSize,
       syncMinIntervalMs,
@@ -372,6 +433,25 @@ function toOptionalPositiveInt(v: unknown, min: number, max: number): number | u
     if (Number.isFinite(n)) {
       const floored = Math.floor(n);
       return floored >= min ? Math.min(max, floored) : undefined;
+    }
+  }
+  return undefined;
+}
+
+/** Optional non-negative int (e.g. sync interval); clamped to `max`. */
+function toOptionalNonNegativeInt(v: unknown, max: number): number | undefined {
+  if (v === undefined || v === null || v === "") {
+    return undefined;
+  }
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const n = Math.floor(v);
+    return n >= 0 ? Math.min(max, n) : undefined;
+  }
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) {
+      const floored = Math.floor(n);
+      return floored >= 0 ? Math.min(max, floored) : undefined;
     }
   }
   return undefined;
