@@ -295,8 +295,10 @@ openclaw ltm search "咖啡"
 | `requestConfig` | 否 | HTTP v2 专用：按请求透传 `config`（如 `memory_db`）。 |
 | `envFile` | 否 | CLI：PowerMem `.env`；插件默认约定 `~/.openclaw/powermem/powermem.env`。 |
 | `pmemPath` | 否 | CLI：`bundled`（默认）、`auto` 或 `pmem` 的路径/命令。 |
-| `userId` | 否 | 用于多用户隔离。未填或为 `"auto"` 时自动生成并保存到 `<stateDir>/powermem/identity.json`。 |
-| `agentId` | 否 | 用于多 Agent 隔离。未填或为 `"auto"` 时自动生成并保存到 `<stateDir>/powermem/identity.json`。 |
+| `userId` | 否 | 多用户隔离。支持占位符如 `"${OPENCLAW_USER_NAME}"`（或任意 `${环境变量名}`）：全部变量存在且非空则展开；否则与未填/`"auto"` 一样，回退到 `identity.json` 中已有值或生成新 UUID。 |
+| `agentId` | 否 | 多 Agent 隔离。设为 **`"auto"`** 时，从 OpenClaw 配置里的 `agents.list[].id` 同步到 `<stateDir>/powermem/agent-identities.json`（每条 OpenClaw agent 对应一条映射，PowerMem 的 `agentId` 等于该条目的 `id`，如 `main`、`researcher`）；`identity.json` 中的默认 `agentId` 取列表中的第一个。未填或非 `auto` 时行为与原先一致（单条默认 id）。 |
+| `openclawConfigPath` | 否 | 仅在 `agentId` 为 `"auto"` 时使用：要读取的 OpenClaw JSON 路径，默认 `<stateDir>/openclaw.json`。 |
+| `agentListSyncIntervalMs` | 否 | 仅在 `agentId` 为 `"auto"` 时：定时重新读取上述 JSON 并合并**新增**的 agent 到 `agent-identities.json`（毫秒）。`0` 表示不在运行时轮询（仅启动时同步一次）。省略时默认 `60000`（60 秒）。 |
 | `autoCapture` | 否 | 会话结束后是否自动把对话交给 PowerMem 抽取记忆，默认 `true`。 |
 | `autoRecall` | 否 | 会话开始前是否自动注入相关记忆，默认 `true`。 |
 | `autoExperience` | 否 | LLM 自动提炼经验，默认 `true`。 |
@@ -352,7 +354,7 @@ openclaw ltm search "咖啡"
 - `openclaw ltm import-md [paths...] [--force] [--dry-run] [--delay-ms n] [--max-file-bytes n] [--max-files n] [--max-chunks n]` — 导入已有 markdown 记忆；不传路径时扫描 `memory/`、`MEMORY.md`、`USER.md`
 - `openclaw ltm import-md-status [paths...] [--json]` — 查看每个 markdown 文件的导入状态：已导入、已变更、跳过、失败或未导入
 
-**身份文件（可选）：** 若插件配置将 `userId` / `agentId` 设为 `auto`（或未填写），稳定 ID 会保存在 `<stateDir>/powermem/identity.json`（默认值）与 `<stateDir>/powermem/agent-identities.json`（按 OpenClaw agent key）。若在 `openclaw.json` 中显式设置了 `userId` 或 `agentId`，运行时将优先使用该配置，覆盖文件中的值。
+**身份文件（可选）：** `userId` 可用 `${VAR}` 从环境变量取值；失败时回退到文件或自动生成。`agentId` 为 **`auto`** 时，会按 `agents.list` 维护 `agent-identities.json`（并可选按 `agentListSyncIntervalMs` 轮询 `openclawConfigPath` 以发现新 agent）。其它情况下：`userId` / `agentId` 为 `auto`（或未填）时，稳定 ID 写在 `<stateDir>/powermem/identity.json`，按 agent key 的映射写在 `agent-identities.json`。若在 `openclaw.json` 插件配置里显式设置了非 `auto` 的 `userId` 或 `agentId`，运行时将优先使用该配置，覆盖文件中的对应逻辑（`userId` 仍以环境展开结果为准）。
 
 - `openclaw ltm identity show [--json]` — 打印路径及 `identity.json` 中存储的 `userId` / `agentId`。
 - `openclaw ltm identity set --user-id <id>` / `--agent-id <id>` — 设置其一或两者（未指定的字段保留已有值或自动生成）。

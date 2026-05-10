@@ -19,8 +19,13 @@ import {
   powerMemConfigSchema,
   DEFAULT_PLUGIN_CONFIG,
   DEFAULT_PMEM_PATH,
+  expandOptionalEnvPlaceholders,
   type PowerMemConfig,
 } from "./config.js";
+import {
+  extractAgentIdsFromOpenClawConfig,
+  readOpenClawJsonFile,
+} from "./openclaw-config-agents.js";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -85,6 +90,7 @@ function resolveIdentityIds(
   cfg: PowerMemConfig,
   stateDir: string,
   logger: Logger,
+  opts?: { defaultAgentIdFromOpenClawList?: string; forceWriteIdentity?: boolean },
 ): { userId: string; agentId: string } {
   const baseDir = join(stateDir, "powermem");
   const identityPath = join(baseDir, "identity.json");
@@ -99,11 +105,24 @@ function resolveIdentityIds(
     // ignore missing or invalid file
   }
 
-  const userId = normalizeId(cfg.userId) ?? normalizeId(stored.userId) ?? `user-${randomUUID()}`;
-  const agentId =
-    normalizeId(cfg.agentId) ?? normalizeId(stored.agentId) ?? `agent-${randomUUID()}`;
+  const expandedUser = expandOptionalEnvPlaceholders(
+    typeof cfg.userId === "string" ? cfg.userId : undefined,
+  );
+  const userFromCfg =
+    expandedUser !== undefined ? normalizeId(expandedUser) : undefined;
+  const userId =
+    userFromCfg ?? normalizeId(stored.userId) ?? `user-${randomUUID()}`;
 
-  if (userId !== stored.userId || agentId !== stored.agentId) {
+  const hint = opts?.defaultAgentIdFromOpenClawList?.trim();
+  const agentId =
+    normalizeId(cfg.agentId) ??
+    (hint || undefined) ??
+    normalizeId(stored.agentId) ??
+    `agent-${randomUUID()}`;
+
+  const shouldWrite =
+    opts?.forceWriteIdentity === true || userId !== stored.userId || agentId !== stored.agentId;
+  if (shouldWrite) {
     try {
       mkdirSync(baseDir, { recursive: true });
       writeFileSync(identityPath, JSON.stringify({ userId, agentId }, null, 2), "utf-8");
@@ -243,6 +262,36 @@ function resolveLocalDbPath(cfg: PowerMemConfig, stateDir: string): string {
   return join(stateDir, "powermem", "local-memories.sqlite");
 }
 
+/** Same Node process may load this plugin twice (e.g. dev path + extensions copy); use globalThis so only one poll runs. */
+const MEMORY_POWERMEM_DYNAMIC_TIMER_KEY = "__memoryPowermemDynamicAgentTimers";
+
+type MemoryPowermemDynamicTimerHolder = {
+  poll?: ReturnType<typeof setInterval>;
+  deferred?: ReturnType<typeof setTimeout>;
+};
+
+function getMemoryPowermemDynamicTimerHolder(): MemoryPowermemDynamicTimerHolder {
+  const g = globalThis as typeof globalThis & Record<string, unknown>;
+  let h = g[MEMORY_POWERMEM_DYNAMIC_TIMER_KEY] as MemoryPowermemDynamicTimerHolder | undefined;
+  if (!h) {
+    h = {};
+    g[MEMORY_POWERMEM_DYNAMIC_TIMER_KEY] = h;
+  }
+  return h;
+}
+
+function clearMemoryPowermemDynamicTimers(): void {
+  const h = getMemoryPowermemDynamicTimerHolder();
+  if (h.poll !== undefined) {
+    clearInterval(h.poll);
+    h.poll = undefined;
+  }
+  if (h.deferred !== undefined) {
+    clearTimeout(h.deferred);
+    h.deferred = undefined;
+  }
+}
+
 // ============================================================================
 // Plugin Definition
 // ============================================================================
@@ -278,7 +327,20 @@ const memoryPlugin = {
       api.logger.info(`memory-powermem: perf ${stage} ${elapsedMs}ms${detail}`);
     };
     const stateDir = resolveOpenClawStateDir(gw);
-    const { userId, agentId } = resolveIdentityIds(cfg, stateDir, api.logger);
+    const wantsDynamicAgents =
+      typeof cfg.agentId === "string" && cfg.agentId.trim().toLowerCase() === "auto";
+    const openclawJsonPath =
+      cfg.openclawConfigPath?.trim() || join(stateDir, "openclaw.json");
+    const openclawConfigForAgents =
+      readOpenClawJsonFile(openclawJsonPath) ?? gw.config;
+    const openclawAgentIds = extractAgentIdsFromOpenClawConfig(openclawConfigForAgents);
+    const defaultAgentIdFromOpenClawList =
+      wantsDynamicAgents && openclawAgentIds.length > 0 ? openclawAgentIds[0] : undefined;
+    const initialIdentity = resolveIdentityIds(cfg, stateDir, api.logger, {
+      defaultAgentIdFromOpenClawList: defaultAgentIdFromOpenClawList,
+    });
+    let userId = initialIdentity.userId;
+    let agentId = initialIdentity.agentId;
     const buildProcessEnv =
       cfg.mode === "cli"
         ? cfg.useOpenClawModel !== false
@@ -405,6 +467,44 @@ const memoryPlugin = {
       return created;
     };
 
+    function performDynamicAgentListSync(reason: string): void {
+      if (!wantsDynamicAgents) return;
+      const parsed = readOpenClawJsonFile(openclawJsonPath) ?? gw.config;
+      const ids = extractAgentIdsFromOpenClawConfig(parsed);
+      if (ids.length === 0) return;
+
+      const idn = resolveIdentityIds(cfg, stateDir, api.logger, {
+        defaultAgentIdFromOpenClawList: ids[0],
+        forceWriteIdentity: true,
+      });
+
+      agentIdentityMap.clear();
+      for (const id of ids) {
+        agentIdentityMap.set(id, { userId: idn.userId, agentId: id });
+      }
+      saveAgentIdentityMap(agentIdentityPath, agentIdentityMap, api.logger);
+
+      userId = idn.userId;
+      agentId = idn.agentId;
+      defaultIdentity.userId = idn.userId;
+      defaultIdentity.agentId = idn.agentId;
+      defaultIdentityBound = agentIdentityMap.size > 0;
+
+      clientCache.clear();
+      embeddingFactoryCache.clear();
+
+      api.logger.info?.(
+        `memory-powermem: dynamic agent sync (${reason}) ids=${ids.join(",")} ` +
+          `userId=${idn.userId} defaultAgentId=${idn.agentId}`,
+      );
+    }
+
+    const agentListPollMs = wantsDynamicAgents
+      ? cfg.agentListSyncIntervalMs === 0
+        ? 0
+        : (cfg.agentListSyncIntervalMs ?? 60_000)
+      : 0;
+
     function dedupeSearchResults(items: PowerMemSearchResult[]): PowerMemSearchResult[] {
       const deduped = new Map<string, PowerMemSearchResult>();
       for (const item of items) {
@@ -478,10 +578,6 @@ const memoryPlugin = {
       return { merged: dedupeSearchResults(merged), sharedFetched };
     }
 
-    const client = getClientForAgent();
-    if (needsDualWriteSqlite && "syncPending" in client) {
-      void (client as DualWriteClient).syncPending("startup");
-    }
     const markdownImportMarkerPath = join(stateDir, "powermem", "markdown-imports.json");
     const configuredMarkdownImportPaths =
       cfg.importMarkdownPaths && cfg.importMarkdownPaths.length > 0
@@ -508,7 +604,7 @@ const memoryPlugin = {
         paths,
       });
       return importMarkdownMemories({
-        client,
+        client: getClientForAgent(),
         markerPath: markdownImportMarkerPath,
         markerKey,
         workspaceDir: params.workspaceDir,
@@ -1657,7 +1753,7 @@ const memoryPlugin = {
                 ? Math.max(0, Math.min(1, Number(rawThreshold)))
                 : undefined;
             const searchStartedAt = perfNow();
-            const results = await client.search(query, limit);
+            const results = await getClientForAgent().search(query, limit);
             const filtered =
               threshold === undefined
                 ? results
@@ -1680,7 +1776,7 @@ const memoryPlugin = {
             const cliHealthStartedAt = perfNow();
             try {
               const healthStartedAt = perfNow();
-              const h = await client.health();
+              const h = await getClientForAgent().health();
               perfLog("cli.ltm.health", cliHealthStartedAt, {
                 status: h.status,
                 upstreamMs: perfNow() - healthStartedAt,
@@ -1706,7 +1802,7 @@ const memoryPlugin = {
             const text = String(args[0] ?? "");
             try {
               const addStartedAt = perfNow();
-              const created = await client.add(text.trim(), { infer: cfg.inferOnAdd });
+              const created = await getClientForAgent().add(text.trim(), { infer: cfg.inferOnAdd });
               perfLog("cli.ltm.add", cliAddStartedAt, {
                 textLen: text.trim().length,
                 infer: cfg.inferOnAdd,
@@ -2267,8 +2363,31 @@ const memoryPlugin = {
     api.registerService({
       id: "memory-powermem",
       start: async (ctx: OpenClawPluginServiceContext) => {
+        clearMemoryPowermemDynamicTimers();
+        if (wantsDynamicAgents) {
+          const timers = getMemoryPowermemDynamicTimerHolder();
+          performDynamicAgentListSync("service-start");
+          timers.deferred = setTimeout(() => {
+            performDynamicAgentListSync("service-start-deferred");
+            timers.deferred = undefined;
+          }, 0);
+          timers.deferred.unref();
+          if (agentListPollMs > 0) {
+            timers.poll = setInterval(
+              () => performDynamicAgentListSync("poll"),
+              agentListPollMs,
+            );
+            timers.poll.unref();
+          }
+        }
+        if (needsDualWriteSqlite) {
+          const c0 = getClientForAgent();
+          if ("syncPending" in c0) {
+            void (c0 as DualWriteClient).syncPending("startup");
+          }
+        }
         try {
-          const h = await client.health();
+          const h = await getClientForAgent().health();
           const where =
             cfg.mode === "cli"
               ? `cli ${resolvePmemExecutable(cfg.pmemPath ?? DEFAULT_PMEM_PATH)}`
@@ -2311,6 +2430,7 @@ const memoryPlugin = {
         }
       },
       stop: (_ctx: OpenClawPluginServiceContext) => {
+        clearMemoryPowermemDynamicTimers();
         api.logger.info("memory-powermem: stopped");
       },
     });

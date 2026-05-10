@@ -52,13 +52,25 @@
       "label": "User ID",
       "placeholder": "openclaw-user",
       "advanced": true,
-      "help": "PowerMem user_id for memory isolation (optional)"
+      "help": "PowerMem user_id (optional). Use ${ENV_NAME} to read from the process environment; if any referenced variable is unset, falls back to identity.json / a new UUID. \"auto\" or omit = generated stable id."
     },
     "agentId": {
       "label": "Agent ID",
       "placeholder": "openclaw-agent",
       "advanced": true,
-      "help": "PowerMem agent_id for memory isolation (optional)"
+      "help": "PowerMem agent_id (optional). Set to \"auto\" to mirror OpenClaw `agents.list[].id` into agent-identities.json (PowerMem agentId = that id); default row in identity.json uses the first listed agent."
+    },
+    "openclawConfigPath": {
+      "label": "OpenClaw config path",
+      "placeholder": "",
+      "advanced": true,
+      "help": "When agentId is auto: JSON file to read for `agents.list` (default: <stateDir>/openclaw.json). Used for startup + periodic sync."
+    },
+    "agentListSyncIntervalMs": {
+      "label": "Agent list sync interval (ms)",
+      "placeholder": "60000",
+      "advanced": true,
+      "help": "When agentId is auto: re-read the OpenClaw config file on this interval and merge new agents into agent-identities.json. 0 = no polling (sync once at startup). Omit for 60000."
     },
     "recallLimit": {
       "label": "Recall limit",
@@ -237,6 +249,8 @@
       "pmemPath": { "type": "string" },
       "userId": { "type": "string" },
       "agentId": { "type": "string" },
+      "openclawConfigPath": { "type": "string" },
+      "agentListSyncIntervalMs": { "type": "number" },
       "recallLimit": { "type": "number" },
       "recallScoreThreshold": { "type": "number" },
       "walCapture": { "type": "boolean" },
