@@ -266,6 +266,26 @@ openclaw ltm search "咖啡"
 
 ---
 
+## 示例：记住 X/Twitter 研究结果
+
+PowerMem 适合和负责采集外部信号的 OpenClaw 插件一起使用。X/Twitter 场景可安装 [TweetClaw](https://github.com/Xquik-dev/tweetclaw)，用它搜索推文和回复、查询用户、导出关注者、监控推文或执行抽奖，然后只把摘要结论和后续决策写入 PowerMem。
+
+```bash
+openclaw plugins install @xquik/tweetclaw
+openclaw config set tools.alsoAllow '["explore", "tweetclaw"]'
+```
+
+示例提示词：
+
+```text
+请用 TweetClaw 搜索最近关于 "openclaw memory plugin" 的推文和回复。
+总结反复出现的需求，并用 memory_store 记住产品信号、来源查询、日期和下一步行动。
+```
+
+把凭据留在本地 OpenClaw 配置里；不要把 API Key、签名密钥、原始 cookie 或完整抓取时间线粘贴进记忆。只保存简短摘要、链接、tweet ID 和后续决策，方便后续 Agent 召回上下文而无需重新读取 feed。
+
+---
+
 ## OpenClaw 插件常用命令（参考）
 
 管理插件时常用的 CLI 命令：
