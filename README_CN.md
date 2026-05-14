@@ -178,13 +178,15 @@ curl -s http://localhost:8000/api/v1/system/health
 openclaw plugins install memory-powermem
 
 # 若插件在本机目录（例如克隆下来的）
+cd /path/to/memory-powermem && npm install && npm run build
 openclaw plugins install /path/to/memory-powermem
 
 # 开发时想改代码即生效，可用链接方式（不拷贝）
+cd /path/to/memory-powermem && npm install && npm run build
 openclaw plugins install -l /path/to/memory-powermem
 ```
 
-**说明：** 在某个 Node 项目里执行 `npm i memory-powermem` 只会把包装进该项目的 `node_modules`，**不会**在 OpenClaw 里注册插件。若要在 OpenClaw 里使用本插件，必须执行 `openclaw plugins install memory-powermem`（或按上面用本地路径安装），再重启 gateway。
+**说明：** OpenClaw 2026.5.4 起，本地路径安装会要求 TypeScript 插件入口已编译成运行时 JS，因此本地克隆安装前需先执行 `npm run build` 生成 `dist/index.js`。在某个 Node 项目里执行 `npm i memory-powermem` 只会把包装进该项目的 `node_modules`，**不会**在 OpenClaw 里注册插件。若要在 OpenClaw 里使用本插件，必须执行 `openclaw plugins install memory-powermem`（或按上面用本地路径安装），再重启 gateway。
 
 安装成功后，可用 `openclaw plugins list` 确认能看到 `memory-powermem`。若未写 `plugins.entries["memory-powermem"].config`，插件 **默认**：`mode: "cli"`、`pmemPath: "bundled"`（优先插件旁的 npm `powermem`，否则用 PATH 上的 `pmem`）、`useOpenClawModel: true`（SQLite 在 OpenClaw 状态目录 + 从 `agents.defaults.model` 注入 LLM），并开启 `autoCapture`、`autoRecall`、`inferOnAdd`。若不使用 OpenClaw 注入模型，再准备 `powermem` 的 `.env`（`envFile`）。
 
