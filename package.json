@@ -3,17 +3,23 @@
   "version": "0.4.0",
   "description": "OpenClaw plugin: long-term memory via PowerMem (default local CLI: npm powermem or pmem on PATH; optional HTTP server; intelligent extraction, Ebbinghaus forgetting curve).",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
+    "dist",
     "src",
-    "lib",
     "scripts",
     "openclaw.plugin.json"
   ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "postinstall": "node scripts/ensure-native-deps.cjs",
     "native:verify": "node scripts/ensure-native-deps.cjs",
     "test": "vitest run",
@@ -42,7 +48,7 @@
   },
   "openclaw": {
     "extensions": [
-      "./src/index.ts"
+      "./dist/index.js"
     ]
   },
   "repository": "",

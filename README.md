@@ -177,13 +177,15 @@ On your machine (use your actual plugin path):
 openclaw plugins install memory-powermem
 
 # Install from a local directory (e.g. cloned repo)
+cd /path/to/memory-powermem && npm install && npm run build
 openclaw plugins install /path/to/memory-powermem
 
 # For development (symlink, no copy)
+cd /path/to/memory-powermem && npm install && npm run build
 openclaw plugins install -l /path/to/memory-powermem
 ```
 
-**Note:** Running `npm i memory-powermem` in a Node project only adds the package to that project’s `node_modules`; it does **not** register the plugin with OpenClaw. To use this as an OpenClaw plugin, you must run `openclaw plugins install memory-powermem` (or install from a path as above), then restart the gateway.
+**Note:** Starting with OpenClaw 2026.5.4, local path installs require the TypeScript plugin entry to be compiled to runtime JS first, so run `npm run build` before installing from a local clone. Running `npm i memory-powermem` in a Node project only adds the package to that project’s `node_modules`; it does **not** register the plugin with OpenClaw. To use this as an OpenClaw plugin, you must run `openclaw plugins install memory-powermem` (or install from a path as above), then restart the gateway.
 
 After install, run `openclaw plugins list` and confirm `memory-powermem` is listed. With **no** `plugins.entries["memory-powermem"].config`, the plugin uses **defaults**: `mode: "cli"`, `pmemPath: "bundled"` (npm `powermem` from plugin dependencies), `useOpenClawModel: true` (SQLite under OpenClaw state + LLM from `agents.defaults.model`), plus `autoCapture` / `autoRecall` / `inferOnAdd` enabled. No separate `powermem.env` is required unless you opt out of OpenClaw model injection.
 
