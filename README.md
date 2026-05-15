@@ -267,6 +267,27 @@ If search returns what you just added (or similar content), the full flow (insta
 
 ---
 
+## Example: remember X/Twitter research
+
+PowerMem works well with source-specific OpenClaw plugins that gather fast-moving external signals. For X/Twitter workflows, install [TweetClaw](https://github.com/Xquik-dev/tweetclaw), use it to search tweets and replies, look up users, export followers, monitor tweets, or run giveaway draws, then store only the summarized findings and follow-up decisions in PowerMem.
+
+```bash
+openclaw plugins install @xquik/tweetclaw
+openclaw config set tools.alsoAllow '["explore", "tweetclaw"]'
+```
+
+Example prompt:
+
+```text
+Search recent tweets and replies about "openclaw memory plugin" with TweetClaw.
+Summarize recurring requests and use memory_store to remember the product signals,
+source query, date, and next action.
+```
+
+Keep credentials in local OpenClaw config; do not paste API keys, signing keys, raw cookies, or full scraped timelines into memory. Store concise summaries, links, tweet IDs, and follow-up decisions so future agents can recall the context without rereading the feed.
+
+---
+
 ## OpenClaw plugin commands (reference)
 
 Common CLI commands for managing plugins:
