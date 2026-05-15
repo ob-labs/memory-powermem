@@ -304,7 +304,7 @@ const memoryPlugin = {
   kind: "memory" as const,
   configSchema: powerMemConfigSchema,
 
-  async register(api: OpenClawPluginApi) {
+  register(api: OpenClawPluginApi) {
     const gw = api as GatewayApi;
     const raw = api.pluginConfig;
     const toParse =
