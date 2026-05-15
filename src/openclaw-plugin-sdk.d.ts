@@ -53,14 +53,14 @@ declare module "openclaw/plugin-sdk/memory-core" {
     }) => void;
   };
 
-  /** Memory plugin entry; `register` may be async when using dynamic imports (e.g. dual-write). */
+  /** Memory plugin entry; `register` must be synchronous (OpenClaw loads CLI metadata before awaiting). */
   export type OpenClawMemoryPlugin = {
     id: string;
     name: string;
     description: string;
     kind: "memory";
     configSchema: unknown;
-    register: (api: OpenClawPluginApi) => void | Promise<void>;
+    register: (api: OpenClawPluginApi) => void;
   };
 }
 
